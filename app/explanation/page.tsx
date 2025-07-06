@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ArrowLeft, Volume2, BookOpen, Brain, CheckCircle, BarChart3 } from "lucide-react"
 import { Progress } from "@/components/ui/progress"
+import { offlineManager } from "@/lib/offline-manager"
 
 interface ExplanationPageProps {
   topic: string
@@ -45,15 +46,24 @@ export default function ExplanationPage({
   }, [topic])
 
   useEffect(() => {
-    // Load completed steps from localStorage
-    const saved = localStorage.getItem(`completedSteps_${topic}`)
-    if (saved) {
-      setCompletedSteps(new Set(JSON.parse(saved)))
-    }
+    loadCompletedSteps()
   }, [topic])
+
+  const loadCompletedSteps = async () => {
+    const steps = await offlineManager.getCompletedSteps(topic)
+    setCompletedSteps(new Set(steps))
+  }
 
   const generateExplanation = async () => {
     setIsLoading(true)
+
+    // Check if we have a cached explanation
+    const cachedExplanation = await offlineManager.getExplanation(topic)
+    if (cachedExplanation) {
+      setExplanation(cachedExplanation)
+      setIsLoading(false)
+      return
+    }
 
     // Simulate AI explanation generation
     await new Promise((resolve) => setTimeout(resolve, 2000))
@@ -96,10 +106,8 @@ export default function ExplanationPage({
     setExplanation(mockExplanation)
     setIsLoading(false)
 
-    // Save to recent topics
-    const recentTopics = JSON.parse(localStorage.getItem("recentTopics") || "[]")
-    const updatedTopics = [topic, ...recentTopics.filter((t: string) => t !== topic)].slice(0, 10)
-    localStorage.setItem("recentTopics", JSON.stringify(updatedTopics))
+    // Save explanation to offline storage
+    await offlineManager.saveExplanation(topic, mockExplanation)
   }
 
   const speakText = (text: string) => {
@@ -139,12 +147,6 @@ export default function ExplanationPage({
     }
 
     onGenerateFlashcards(stepExplanation)
-  }
-
-  const markStepCompleted = (stepIndex: number) => {
-    const newCompleted = new Set([...completedSteps, stepIndex])
-    setCompletedSteps(newCompleted)
-    localStorage.setItem(`completedSteps_${topic}`, JSON.stringify([...newCompleted]))
   }
 
   if (isLoading) {

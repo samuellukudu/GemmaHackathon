@@ -8,6 +8,7 @@ import { ArrowLeft, CheckCircle, XCircle, RotateCcw, Trophy, ArrowRight, BarChar
 import { Progress } from "@/components/ui/progress"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Label } from "@/components/ui/label"
+import { offlineManager } from "@/lib/offline-manager"
 
 interface QuizPageProps {
   flashcards: any[]
@@ -105,92 +106,28 @@ export default function QuizPage({
     setShowResult(true)
   }
 
-  const handleNextQuestion = () => {
+  const handleNextQuestion = async () => {
     if (currentQuestion < questions.length - 1) {
       setCurrentQuestion((prev) => prev + 1)
       setSelectedAnswer("")
       setShowResult(false)
     } else {
       setQuizComplete(true)
+
       // Mark step as completed and save quiz results
       if (explanation?.currentStepIndex !== undefined) {
         const topic = explanation.parentExplanation?.topic || explanation.topic
-        const completedSteps = JSON.parse(localStorage.getItem(`completedSteps_${topic}`) || "[]")
-        const newCompleted = [...new Set([...completedSteps, explanation.currentStepIndex])]
-        localStorage.setItem(`completedSteps_${topic}`, JSON.stringify(newCompleted))
+        await offlineManager.saveCompletedSteps(topic, explanation.currentStepIndex)
 
         // Save quiz result for stats
-        saveQuizResult(topic)
+        const score = results.filter((r) => r.correct).length
+        const percentage = Math.round((score / questions.length) * 100)
+        await offlineManager.saveQuizResult(topic, percentage, questions.length, explanation.currentStepIndex)
       }
 
       // Update last study date
       localStorage.setItem("lastStudyDate", new Date().toISOString())
     }
-  }
-
-  const saveQuizResult = (topic: string) => {
-    const score = results.filter((r) => r.correct).length
-    const percentage = Math.round((score / questions.length) * 100)
-
-    const quizResult = {
-      topic,
-      score: percentage,
-      totalQuestions: questions.length,
-      correctAnswers: score,
-      date: new Date().toISOString(),
-      stepIndex: explanation?.currentStepIndex,
-    }
-
-    // Save to all quiz results
-    const allResults = JSON.parse(localStorage.getItem("allQuizResults") || "[]")
-    allResults.push(quizResult)
-    localStorage.setItem("allQuizResults", JSON.stringify(allResults))
-
-    // Update user stats
-    updateUserStats()
-  }
-
-  const updateUserStats = () => {
-    const recentTopics = JSON.parse(localStorage.getItem("recentTopics") || "[]")
-    const allQuizResults = JSON.parse(localStorage.getItem("allQuizResults") || "[]")
-
-    // Calculate total steps completed across all topics
-    let totalStepsCompleted = 0
-    recentTopics.forEach((topic: string) => {
-      const completedSteps = JSON.parse(localStorage.getItem(`completedSteps_${topic}`) || "[]")
-      totalStepsCompleted += completedSteps.length
-    })
-
-    // Calculate average quiz score
-    const averageScore =
-      allQuizResults.length > 0
-        ? allQuizResults.reduce((sum: number, result: any) => sum + result.score, 0) / allQuizResults.length
-        : 0
-
-    const userStats = {
-      totalTopicsExplored: recentTopics.length,
-      totalStepsCompleted,
-      totalQuizzesTaken: allQuizResults.length,
-      averageQuizScore: Math.round(averageScore),
-      totalStudyTime: allQuizResults.length * 5, // Estimate 5 minutes per quiz
-      streak: calculateStreak(),
-      lastStudyDate: new Date().toISOString(),
-    }
-
-    localStorage.setItem("userStats", JSON.stringify(userStats))
-  }
-
-  const calculateStreak = (): number => {
-    const lastStudyDate = localStorage.getItem("lastStudyDate")
-    if (!lastStudyDate) return 1
-
-    const today = new Date()
-    const lastDate = new Date(lastStudyDate)
-    const diffTime = Math.abs(today.getTime() - lastDate.getTime())
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
-
-    // If studied within last 2 days, increment streak, otherwise reset
-    return diffDays <= 2 ? diffDays + 1 : 1
   }
 
   const handleRetakeQuiz = () => {

@@ -5,8 +5,22 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
-import { BookOpen, Bell, User, Trophy, Target, Clock, TrendingUp, Plus, ChevronDown, ChevronUp } from "lucide-react"
+import {
+  BookOpen,
+  Bell,
+  User,
+  Trophy,
+  Target,
+  Clock,
+  TrendingUp,
+  Plus,
+  ChevronDown,
+  ChevronUp,
+  Wifi,
+  WifiOff,
+} from "lucide-react"
 import AppShell from "./app-shell"
+import { offlineManager } from "@/lib/offline-manager"
 
 const categories = [
   {
@@ -82,6 +96,23 @@ export function HomePage({ onStartExploration, onShowLibrary, onShowExplore, onS
   const [customTopic, setCustomTopic] = useState("")
   const [showCustomInput, setShowCustomInput] = useState(false)
   const [expandedCategory, setExpandedCategory] = useState<string>("")
+  const [isOnline, setIsOnline] = useState(true)
+
+  useEffect(() => {
+    // Initialize offline manager and check connection status
+    setIsOnline(offlineManager.getConnectionStatus())
+
+    const handleOnline = () => setIsOnline(true)
+    const handleOffline = () => setIsOnline(false)
+
+    window.addEventListener("online", handleOnline)
+    window.addEventListener("offline", handleOffline)
+
+    return () => {
+      window.removeEventListener("online", handleOnline)
+      window.removeEventListener("offline", handleOffline)
+    }
+  }, [])
 
   const handleCategorySelect = (categoryId: string) => {
     if (expandedCategory === categoryId) {
@@ -108,10 +139,12 @@ export function HomePage({ onStartExploration, onShowLibrary, onShowExplore, onS
     setCustomTopic("")
   }
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     if (showCustomInput && customTopic.trim()) {
+      await offlineManager.saveTopicProgress(customTopic.trim())
       onStartExploration(customTopic.trim())
     } else if (selectedSubcategory) {
+      await offlineManager.saveTopicProgress(selectedSubcategory, selectedCategory)
       onStartExploration(selectedSubcategory, selectedCategory)
     }
   }
@@ -145,6 +178,14 @@ export function HomePage({ onStartExploration, onShowLibrary, onShowExplore, onS
 
           {/* Right Side */}
           <div className="flex items-center gap-4">
+            {/* Connection Status */}
+            <div className="flex items-center gap-2">
+              {isOnline ? (
+                <Wifi className="h-4 w-4 text-green-500" title="Online" />
+              ) : (
+                <WifiOff className="h-4 w-4 text-orange-500" title="Offline - Data saved locally" />
+              )}
+            </div>
             <Button variant="ghost" size="sm" className="p-2">
               <Bell className="h-5 w-5 text-gray-500" />
             </Button>
@@ -154,6 +195,18 @@ export function HomePage({ onStartExploration, onShowLibrary, onShowExplore, onS
           </div>
         </div>
       </nav>
+
+      {/* Offline Banner */}
+      {!isOnline && (
+        <div className="bg-orange-50 border-b border-orange-200 px-6 py-2">
+          <div className="max-w-7xl mx-auto flex items-center gap-2 text-orange-800">
+            <WifiOff className="h-4 w-4" />
+            <span className="text-sm">
+              You're offline. Your progress is being saved locally and will sync when you're back online.
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Main Content */}
       <div className="max-w-4xl mx-auto px-6 py-16">
@@ -288,19 +341,16 @@ export function LessonsPage({
   const [recentTopics, setRecentTopics] = useState<string[]>([])
 
   useEffect(() => {
-    // Load recent topics from localStorage
-    const saved = localStorage.getItem("recentTopics")
-    if (saved) {
-      setRecentTopics(JSON.parse(saved))
-    }
+    loadRecentTopics()
   }, [])
 
-  const clearHistory = () => {
-    localStorage.removeItem("recentTopics")
-    // Also clear related data
-    recentTopics.forEach((topic) => {
-      localStorage.removeItem(`completedSteps_${topic}`)
-    })
+  const loadRecentTopics = async () => {
+    const topics = await offlineManager.getRecentTopics()
+    setRecentTopics(topics)
+  }
+
+  const clearHistory = async () => {
+    await offlineManager.clearAllData()
     setRecentTopics([])
   }
 
@@ -486,65 +536,12 @@ export function LibraryPage({
   })
 
   useEffect(() => {
-    // Load user stats
     loadUserStats()
   }, [])
 
-  const loadUserStats = () => {
-    const stats = localStorage.getItem("userStats")
-    if (stats) {
-      setUserStats(JSON.parse(stats))
-    } else {
-      // Calculate stats from existing data
-      calculateStatsFromData()
-    }
-  }
-
-  const calculateStatsFromData = () => {
-    const recentTopics = JSON.parse(localStorage.getItem("recentTopics") || "[]")
-    const allQuizResults = JSON.parse(localStorage.getItem("allQuizResults") || "[]")
-
-    // Calculate total steps completed across all topics
-    let totalStepsCompleted = 0
-    recentTopics.forEach((topic: string) => {
-      const completedSteps = JSON.parse(localStorage.getItem(`completedSteps_${topic}`) || "[]")
-      totalStepsCompleted += completedSteps.length
-    })
-
-    // Calculate average quiz score
-    const averageScore =
-      allQuizResults.length > 0
-        ? allQuizResults.reduce((sum: number, result: any) => sum + result.score, 0) / allQuizResults.length
-        : 0
-
-    // Calculate streak (simplified - days with activity)
-    const lastStudyDate = localStorage.getItem("lastStudyDate") || ""
-    const streak = calculateStreak(lastStudyDate)
-
-    const calculatedStats: UserStats = {
-      totalTopicsExplored: recentTopics.length,
-      totalStepsCompleted,
-      totalQuizzesTaken: allQuizResults.length,
-      averageQuizScore: Math.round(averageScore),
-      totalStudyTime: allQuizResults.length * 5, // Estimate 5 minutes per quiz
-      streak,
-      lastStudyDate,
-    }
-
-    setUserStats(calculatedStats)
-    localStorage.setItem("userStats", JSON.stringify(calculatedStats))
-  }
-
-  const calculateStreak = (lastStudyDate: string): number => {
-    if (!lastStudyDate) return 0
-
-    const today = new Date()
-    const lastDate = new Date(lastStudyDate)
-    const diffTime = Math.abs(today.getTime() - lastDate.getTime())
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
-
-    // Simple streak calculation - if studied within last 2 days, maintain streak
-    return diffDays <= 2 ? Math.max(1, diffDays) : 0
+  const loadUserStats = async () => {
+    const stats = await offlineManager.getUserStats()
+    setUserStats(stats)
   }
 
   const formatStudyTime = (minutes: number): string => {
@@ -771,14 +768,14 @@ export function ExplorePage({
   const [recommendations, setRecommendations] = useState<string[]>([])
 
   useEffect(() => {
-    // Load recent topics from localStorage
-    const saved = localStorage.getItem("recentTopics")
-    if (saved) {
-      const topics = JSON.parse(saved)
-      setRecentTopics(topics)
-      generateRecommendations(topics)
-    }
+    loadRecentTopics()
   }, [])
+
+  const loadRecentTopics = async () => {
+    const topics = await offlineManager.getRecentTopics()
+    setRecentTopics(topics)
+    generateRecommendations(topics)
+  }
 
   const generateRecommendations = (topics: string[]) => {
     const allRecommendations: string[] = []
