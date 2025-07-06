@@ -1,4 +1,4 @@
-// IndexedDB wrapper for offline data storage
+// IndexedDB wrapper for offline storage
 export interface Topic {
   id: string
   title: string
@@ -32,11 +32,7 @@ export interface ExplanationData {
   id: string
   topic: string
   overview: string
-  steps: Array<{
-    title: string
-    description: string
-    keyPoint: string
-  }>
+  steps: any[]
   summary: string
   createdAt: Date
 }
@@ -62,8 +58,8 @@ class OfflineDB {
         // Topics store
         if (!db.objectStoreNames.contains("topics")) {
           const topicsStore = db.createObjectStore("topics", { keyPath: "id" })
+          topicsStore.createIndex("title", "title", { unique: false })
           topicsStore.createIndex("category", "category", { unique: false })
-          topicsStore.createIndex("lastAccessed", "lastAccessed", { unique: false })
         }
 
         // Quiz results store
@@ -92,11 +88,17 @@ class OfflineDB {
     })
   }
 
-  async saveTopic(topic: Topic): Promise<void> {
-    if (!this.db) await this.init()
+  private async ensureDB(): Promise<IDBDatabase> {
+    if (!this.db) {
+      await this.init()
+    }
+    return this.db!
+  }
 
+  async saveTopic(topic: Topic): Promise<void> {
+    const db = await this.ensureDB()
     return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction(["topics"], "readwrite")
+      const transaction = db.transaction(["topics"], "readwrite")
       const store = transaction.objectStore("topics")
       const request = store.put(topic)
 
@@ -106,29 +108,21 @@ class OfflineDB {
   }
 
   async getTopics(): Promise<Topic[]> {
-    if (!this.db) await this.init()
-
+    const db = await this.ensureDB()
     return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction(["topics"], "readonly")
+      const transaction = db.transaction(["topics"], "readonly")
       const store = transaction.objectStore("topics")
-      const index = store.index("lastAccessed")
-      const request = index.getAll()
+      const request = store.getAll()
 
       request.onerror = () => reject(request.error)
-      request.onsuccess = () => {
-        const topics = request.result.sort(
-          (a, b) => new Date(b.lastAccessed).getTime() - new Date(a.lastAccessed).getTime(),
-        )
-        resolve(topics)
-      }
+      request.onsuccess = () => resolve(request.result || [])
     })
   }
 
   async saveQuizResult(result: QuizResult): Promise<void> {
-    if (!this.db) await this.init()
-
+    const db = await this.ensureDB()
     return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction(["quizResults"], "readwrite")
+      const transaction = db.transaction(["quizResults"], "readwrite")
       const store = transaction.objectStore("quizResults")
       const request = store.put(result)
 
@@ -138,25 +132,23 @@ class OfflineDB {
   }
 
   async getQuizResults(): Promise<QuizResult[]> {
-    if (!this.db) await this.init()
-
+    const db = await this.ensureDB()
     return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction(["quizResults"], "readonly")
+      const transaction = db.transaction(["quizResults"], "readonly")
       const store = transaction.objectStore("quizResults")
       const request = store.getAll()
 
       request.onerror = () => reject(request.error)
-      request.onsuccess = () => resolve(request.result)
+      request.onsuccess = () => resolve(request.result || [])
     })
   }
 
   async saveUserStats(stats: UserStats): Promise<void> {
-    if (!this.db) await this.init()
-
+    const db = await this.ensureDB()
     return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction(["userStats"], "readwrite")
+      const transaction = db.transaction(["userStats"], "readwrite")
       const store = transaction.objectStore("userStats")
-      const request = store.put({ id: "main", ...stats })
+      const request = store.put({ ...stats, id: "main" })
 
       request.onerror = () => reject(request.error)
       request.onsuccess = () => resolve()
@@ -164,31 +156,21 @@ class OfflineDB {
   }
 
   async getUserStats(): Promise<UserStats | null> {
-    if (!this.db) await this.init()
-
+    const db = await this.ensureDB()
     return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction(["userStats"], "readonly")
+      const transaction = db.transaction(["userStats"], "readonly")
       const store = transaction.objectStore("userStats")
       const request = store.get("main")
 
       request.onerror = () => reject(request.error)
-      request.onsuccess = () => {
-        const result = request.result
-        if (result) {
-          const { id, ...stats } = result
-          resolve(stats)
-        } else {
-          resolve(null)
-        }
-      }
+      request.onsuccess = () => resolve(request.result || null)
     })
   }
 
   async saveExplanation(explanation: ExplanationData): Promise<void> {
-    if (!this.db) await this.init()
-
+    const db = await this.ensureDB()
     return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction(["explanations"], "readwrite")
+      const transaction = db.transaction(["explanations"], "readwrite")
       const store = transaction.objectStore("explanations")
       const request = store.put(explanation)
 
@@ -198,10 +180,9 @@ class OfflineDB {
   }
 
   async getExplanation(topic: string): Promise<ExplanationData | null> {
-    if (!this.db) await this.init()
-
+    const db = await this.ensureDB()
     return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction(["explanations"], "readonly")
+      const transaction = db.transaction(["explanations"], "readonly")
       const store = transaction.objectStore("explanations")
       const index = store.index("topic")
       const request = index.get(topic)
@@ -212,10 +193,9 @@ class OfflineDB {
   }
 
   async saveCompletedSteps(topicId: string, steps: number[]): Promise<void> {
-    if (!this.db) await this.init()
-
+    const db = await this.ensureDB()
     return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction(["completedSteps"], "readwrite")
+      const transaction = db.transaction(["completedSteps"], "readwrite")
       const store = transaction.objectStore("completedSteps")
       const request = store.put({ topicId, steps })
 
@@ -225,41 +205,40 @@ class OfflineDB {
   }
 
   async getCompletedSteps(topicId: string): Promise<number[]> {
-    if (!this.db) await this.init()
-
+    const db = await this.ensureDB()
     return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction(["completedSteps"], "readonly")
+      const transaction = db.transaction(["completedSteps"], "readonly")
       const store = transaction.objectStore("completedSteps")
       const request = store.get(topicId)
 
       request.onerror = () => reject(request.error)
-      request.onsuccess = () => {
-        const result = request.result
-        resolve(result ? result.steps : [])
-      }
+      request.onsuccess = () => resolve(request.result?.steps || [])
     })
   }
 
   async clearAllData(): Promise<void> {
-    if (!this.db) await this.init()
-
-    const stores = ["topics", "quizResults", "userStats", "explanations", "completedSteps"]
-
+    const db = await this.ensureDB()
     return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction(stores, "readwrite")
+      const transaction = db.transaction(
+        ["topics", "quizResults", "userStats", "explanations", "completedSteps"],
+        "readwrite",
+      )
+
+      const stores = ["topics", "quizResults", "userStats", "explanations", "completedSteps"]
       let completed = 0
+
+      const checkComplete = () => {
+        completed++
+        if (completed === stores.length) {
+          resolve()
+        }
+      }
 
       stores.forEach((storeName) => {
         const store = transaction.objectStore(storeName)
         const request = store.clear()
-
-        request.onsuccess = () => {
-          completed++
-          if (completed === stores.length) {
-            resolve()
-          }
-        }
         request.onerror = () => reject(request.error)
+        request.onsuccess = () => checkComplete()
       })
     })
   }

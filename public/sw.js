@@ -1,15 +1,5 @@
-const CACHE_NAME = "ai-explainer-v2"
-const urlsToCache = [
-  "/",
-  "/manifest.json",
-  "/icon-192.png",
-  "/icon-512.png",
-  "/_next/static/css/app/layout.css",
-  "/_next/static/chunks/webpack.js",
-  "/_next/static/chunks/main.js",
-  "/_next/static/chunks/pages/_app.js",
-  "/offline.html",
-]
+const CACHE_NAME = "ai-explainer-v1"
+const urlsToCache = ["/", "/static/js/bundle.js", "/static/css/main.css", "/manifest.json", "/offline.html"]
 
 // Install event - cache resources
 self.addEventListener("install", (event) => {
@@ -19,7 +9,24 @@ self.addEventListener("install", (event) => {
       return cache.addAll(urlsToCache)
     }),
   )
-  self.skipWaiting()
+})
+
+// Fetch event - serve from cache, fallback to network
+self.addEventListener("fetch", (event) => {
+  event.respondWith(
+    caches.match(event.request).then((response) => {
+      // Return cached version or fetch from network
+      if (response) {
+        return response
+      }
+      return fetch(event.request).catch(() => {
+        // If both cache and network fail, show offline page
+        if (event.request.destination === "document") {
+          return caches.match("/offline.html")
+        }
+      })
+    }),
+  )
 })
 
 // Activate event - clean up old caches
@@ -36,55 +43,14 @@ self.addEventListener("activate", (event) => {
       )
     }),
   )
-  self.clients.claim()
 })
 
-// Fetch event - serve from cache, fallback to network
-self.addEventListener("fetch", (event) => {
-  event.respondWith(
-    caches.match(event.request).then((response) => {
-      // Return cached version if available
-      if (response) {
-        return response
-      }
-
-      // Clone the request because it's a stream
-      const fetchRequest = event.request.clone()
-
-      return fetch(fetchRequest)
-        .then((response) => {
-          // Check if valid response
-          if (!response || response.status !== 200 || response.type !== "basic") {
-            return response
-          }
-
-          // Clone the response because it's a stream
-          const responseToCache = response.clone()
-
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseToCache)
-          })
-
-          return response
-        })
-        .catch(() => {
-          // If both cache and network fail, show offline page for navigation requests
-          if (event.request.destination === "document") {
-            return caches.match("/offline.html")
-          }
-        })
-    }),
-  )
-})
-
-// Background sync for when connection is restored
+// Background sync for offline data
 self.addEventListener("sync", (event) => {
   if (event.tag === "background-sync") {
-    event.waitUntil(syncData())
+    event.waitUntil(
+      // Sync offline data when connection is restored
+      console.log("Background sync triggered"),
+    )
   }
 })
-
-async function syncData() {
-  // This would sync any pending data when connection is restored
-  console.log("Background sync triggered")
-}

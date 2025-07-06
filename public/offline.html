@@ -6,52 +6,72 @@
     <title>AI Explainer - Offline</title>
     <style>
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
             margin: 0;
-            padding: 20px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
+            padding: 0;
+            background-color: #f9fafb;
             display: flex;
             align-items: center;
             justify-content: center;
-            color: white;
+            min-height: 100vh;
         }
         .container {
             text-align: center;
-            max-width: 400px;
+            padding: 2rem;
+            max-width: 500px;
         }
         .icon {
-            font-size: 4rem;
-            margin-bottom: 1rem;
+            width: 64px;
+            height: 64px;
+            margin: 0 auto 1.5rem;
+            background-color: #ef4444;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .icon svg {
+            width: 32px;
+            height: 32px;
+            color: white;
         }
         h1 {
-            margin-bottom: 1rem;
+            color: #111827;
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
         }
         p {
-            margin-bottom: 2rem;
-            opacity: 0.9;
+            color: #6b7280;
+            margin-bottom: 1.5rem;
+            line-height: 1.5;
         }
         .button {
-            background: rgba(255, 255, 255, 0.2);
-            border: 1px solid rgba(255, 255, 255, 0.3);
+            background-color: #3b82f6;
             color: white;
-            padding: 12px 24px;
-            border-radius: 8px;
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 0.5rem;
+            font-weight: 500;
+            cursor: pointer;
             text-decoration: none;
             display: inline-block;
-            transition: background 0.3s;
         }
         .button:hover {
-            background: rgba(255, 255, 255, 0.3);
+            background-color: #2563eb;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="icon">📚</div>
+        <div class="icon">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192L5.636 18.364M12 2.25a9.75 9.75 0 11-9.75 9.75 9.75 9.75 0 019.75-9.75z"></path>
+            </svg>
+        </div>
         <h1>You're Offline</h1>
-        <p>Don't worry! AI Explainer works offline. Your learning progress is saved locally and will sync when you're back online.</p>
-        <a href="/" class="button">Continue Learning</a>
+        <p>It looks like you've lost your internet connection. Don't worry - your learning progress is saved locally and will sync when you're back online.</p>
+        <a href="/" class="button">Try Again</a>
     </div>
 </body>
 </html>

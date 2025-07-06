@@ -56,21 +56,29 @@ class OfflineManager {
   }
 
   async saveTopicProgress(topic: string, category = "general"): Promise<void> {
-    const topicData: Topic = {
-      id: this.generateId(),
-      title: topic,
-      category,
-      completedSteps: [],
-      createdAt: new Date(),
-      lastAccessed: new Date(),
+    try {
+      const topicData: Topic = {
+        id: this.generateId(),
+        title: topic,
+        category,
+        completedSteps: [],
+        createdAt: new Date(),
+        lastAccessed: new Date(),
+      }
+
+      await offlineDB.saveTopic(topicData)
+
+      // Also maintain localStorage for backward compatibility
+      const recentTopics = await this.getRecentTopics()
+      const updatedTopics = [topic, ...recentTopics.filter((t) => t !== topic)].slice(0, 10)
+      localStorage.setItem("recentTopics", JSON.stringify(updatedTopics))
+    } catch (error) {
+      console.error("Error saving topic progress:", error)
+      // Fallback to localStorage only
+      const recentTopics = JSON.parse(localStorage.getItem("recentTopics") || "[]")
+      const updatedTopics = [topic, ...recentTopics.filter((t: string) => t !== topic)].slice(0, 10)
+      localStorage.setItem("recentTopics", JSON.stringify(updatedTopics))
     }
-
-    await offlineDB.saveTopic(topicData)
-
-    // Also maintain localStorage for backward compatibility
-    const recentTopics = this.getRecentTopics()
-    const updatedTopics = [topic, ...recentTopics.filter((t) => t !== topic)].slice(0, 10)
-    localStorage.setItem("recentTopics", JSON.stringify(updatedTopics))
   }
 
   async getRecentTopics(): Promise<string[]> {
@@ -78,6 +86,7 @@ class OfflineManager {
       const topics = await offlineDB.getTopics()
       return topics.map((t) => t.title)
     } catch (error) {
+      console.error("Error getting topics from DB:", error)
       // Fallback to localStorage
       return JSON.parse(localStorage.getItem("recentTopics") || "[]")
     }
@@ -94,7 +103,11 @@ class OfflineManager {
       stepIndex,
     }
 
-    await offlineDB.saveQuizResult(result)
+    try {
+      await offlineDB.saveQuizResult(result)
+    } catch (error) {
+      console.error("Error saving quiz result to DB:", error)
+    }
 
     // Also save to localStorage for backward compatibility
     const allResults = JSON.parse(localStorage.getItem("allQuizResults") || "[]")
@@ -141,7 +154,39 @@ class OfflineManager {
       localStorage.setItem("userStats", JSON.stringify(stats))
     } catch (error) {
       console.error("Error updating user stats:", error)
+      // Fallback to localStorage calculation
+      this.calculateStatsFromLocalStorage()
     }
+  }
+
+  private calculateStatsFromLocalStorage(): void {
+    const recentTopics = JSON.parse(localStorage.getItem("recentTopics") || "[]")
+    const allQuizResults = JSON.parse(localStorage.getItem("allQuizResults") || "[]")
+
+    // Calculate total steps completed across all topics
+    let totalStepsCompleted = 0
+    recentTopics.forEach((topic: string) => {
+      const completedSteps = JSON.parse(localStorage.getItem(`completedSteps_${topic}`) || "[]")
+      totalStepsCompleted += completedSteps.length
+    })
+
+    // Calculate average quiz score
+    const averageScore =
+      allQuizResults.length > 0
+        ? allQuizResults.reduce((sum: number, result: any) => sum + result.score, 0) / allQuizResults.length
+        : 0
+
+    const stats: UserStats = {
+      totalTopicsExplored: recentTopics.length,
+      totalStepsCompleted,
+      totalQuizzesTaken: allQuizResults.length,
+      averageQuizScore: Math.round(averageScore),
+      totalStudyTime: allQuizResults.length * 5, // Estimate 5 minutes per quiz
+      streak: this.calculateStreak(),
+      lastStudyDate: new Date().toISOString(),
+    }
+
+    localStorage.setItem("userStats", JSON.stringify(stats))
   }
 
   async getUserStats(): Promise<UserStats> {

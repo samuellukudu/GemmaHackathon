@@ -199,16 +199,6 @@ export default function ExplanationPage({
         <div className="space-y-3 mb-4">
           <div>
             <div className="flex justify-between items-center mb-1">
-              <span className="text-xs font-medium text-gray-700">Course Progress</span>
-              <span className="text-xs text-gray-600">
-                {completedSteps.size}/{explanation.steps.length}
-              </span>
-            </div>
-            <Progress value={(completedSteps.size / explanation.steps.length) * 100} className="h-1.5" />
-          </div>
-
-          <div>
-            <div className="flex justify-between items-center mb-1">
               <span className="text-xs font-medium text-gray-700">Current Step</span>
               <span className="text-xs text-gray-600">
                 {currentStepIndex + 1}/{explanation.steps.length}

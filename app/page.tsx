@@ -238,7 +238,12 @@ export function HomePage({ onStartExploration, onShowLibrary, onShowExplore, onS
                   value={customTopic}
                   onChange={(e) => setCustomTopic(e.target.value)}
                   className="text-center text-lg h-14 border-2 border-blue-300 rounded-lg focus:border-blue-500 focus:ring-blue-500"
-                  onKeyPress={(e) => e.key === "Enter" && canContinue && handleContinue()}
+                  onKeyPress={(e) => {
+                    if (e.key === "Enter" && canContinue) {
+                      e.preventDefault()
+                      handleContinue()
+                    }
+                  }}
                   autoFocus
                 />
                 {customTopic && (
@@ -318,7 +323,7 @@ export function HomePage({ onStartExploration, onShowLibrary, onShowExplore, onS
               disabled={!canContinue}
               className="bg-blue-500 hover:bg-blue-600 text-white px-8 py-3 text-lg font-medium rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {showCustomInput ? "Start Learning" : selectedSubcategory ? "Start Learning" : "Select a Topic"}
+              {canContinue ? "Start Learning" : "Select a Topic"}
             </Button>
           </div>
         </div>
