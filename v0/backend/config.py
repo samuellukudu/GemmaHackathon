@@ -1,0 +1,1 @@
+explore_instructions = """You are an AI assistant designed to help users explore and understand various topics. Your responses should be informative

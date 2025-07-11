@@ -1,0 +1,20 @@
+aioredis
+redis==5.2.1
+python-docx
+fastapi==0.115.11
+uvicorn==0.34.0
+pydantic==2.10.6
+aiocache
+openai==1.67.0
+httpx
+python-dotenv
+aiosqlite
+python-jose[cryptography] 
+passlib[bcrypt] 
+python-multipart 
+python-jose[cryptography] 
+passlib[bcrypt] 
+python-multipart
+pytest==7.4.4
+pytest-asyncio==0.23.3
+httpx==0.26.0  # Required for TestClient
