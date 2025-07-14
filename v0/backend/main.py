@@ -2,10 +2,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import os
+import asyncio
 
 # Import configuration and routes
 from backend.config import settings, validate_environment
 from backend.api.routes import router
+from backend.database import db
+from backend.task_queue import task_queue
 
 # Validate environment variables
 try:
@@ -35,6 +38,29 @@ app.add_middleware(
 # Include API routes
 app.include_router(router)
 
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database and task queue on startup"""
+    print("Initializing database...")
+    await db.init()
+    print("Database initialized successfully")
+    
+    print("Starting task queue...")
+    await task_queue.start()
+    print("Task queue started successfully")
+    
+    print(f"Starting {settings.API_TITLE} on {settings.HOST}:{settings.PORT}")
+    print(f"Debug mode: {settings.DEBUG}")
+    print(f"API Documentation: http://{settings.HOST}:{settings.PORT}/docs")
+    print(f"Health check: http://{settings.HOST}:{settings.PORT}/api/health")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean up resources on shutdown"""
+    print("Stopping task queue...")
+    await task_queue.stop()
+    print("Task queue stopped successfully")
+
 # Root endpoint
 @app.get("/")
 async def root():
@@ -42,7 +68,14 @@ async def root():
         "message": f"{settings.API_TITLE} is running!",
         "version": settings.API_VERSION,
         "docs": "/docs",
-        "health": "/api/health"
+        "health": "/api/health",
+        "features": [
+            "Background task processing",
+            "Database persistence",
+            "Hybrid caching (memory + database)",
+            "Request history tracking",
+            "Batch processing support"
+        ]
     }
 
 if __name__ == "__main__":

@@ -12,4 +12,4 @@ COPY ./backend /code/backend
 ENV PYTHONPATH=/code
 
 # Add wait for database and initialize
-CMD uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload --workers 2
+CMD uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload --workers 4

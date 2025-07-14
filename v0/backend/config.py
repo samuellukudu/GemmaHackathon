@@ -23,7 +23,14 @@ class Settings:
     MODEL: str = os.getenv("MODEL", "gemma-2b-it")
     
     # Cache Configuration
-    CACHE_MAX_SIZE: int = int(os.getenv("CACHE_MAX_SIZE", "100000"))
+    CACHE_MAX_SIZE: int = int(os.getenv("CACHE_MAX_SIZE", "1000"))
+    CACHE_TTL_HOURS: int = int(os.getenv("CACHE_TTL_HOURS", "24"))
+    
+    # Database Configuration
+    DATABASE_PATH: str = os.getenv("DATABASE_PATH", "llm_app.db")
+    
+    # Task Queue Configuration
+    TASK_QUEUE_WORKERS: int = int(os.getenv("TASK_QUEUE_WORKERS", "4"))
     
     # CORS Configuration
     CORS_ORIGINS: list = os.getenv("CORS_ORIGINS", "*").split(",")
