@@ -53,6 +53,9 @@ async def startup_event():
     print(f"Debug mode: {settings.DEBUG}")
     print(f"API Documentation: http://{settings.HOST}:{settings.PORT}/docs")
     print(f"Health check: http://{settings.HOST}:{settings.PORT}/api/health")
+    print("[DEBUG] BASE_URL:", os.getenv("BASE_URL"))
+    print("[DEBUG] API_KEY:", os.getenv("API_KEY"))
+    print("[DEBUG] MODEL:", os.getenv("MODEL"))
 
 @app.on_event("shutdown")
 async def shutdown_event():

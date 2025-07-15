@@ -73,8 +73,10 @@ uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 
 ### AI Completions
 - `POST /api/completions` - Generate AI completions
+- `POST /api/lessons` - Generate 5 structured lessons/guides for a query
+- `POST /api/related-questions` - Generate 5 related questions for topic exploration
 
-**Request Body**:
+**Completions Request Body**:
 ```json
 {
   "prompt": "Your prompt here",
@@ -83,11 +85,29 @@ uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 }
 ```
 
+**Lessons Request Body**:
+```json
+{
+  "query": "How does photosynthesis work?",
+  "user_id": "optional_user_id"
+}
+```
+
+**Related Questions Request Body**:
+```json
+{
+  "query": "How does photosynthesis work?",
+  "user_id": "optional_user_id"
+}
+```
+
 **Available Instruction Types**:
 - `default` - General helpful assistant for understanding complex topics
 - `exploration` - For exploring and understanding various topics
 - `technical` - For explaining technical concepts
 - `creative` - For creative thinking and idea exploration
+- `lessons` - For generating structured learning guides and lessons
+- `related_questions` - For generating related questions for topic exploration
 
 **Response**:
 ```json

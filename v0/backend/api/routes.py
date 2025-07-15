@@ -2,6 +2,8 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from typing import Dict, Any, Optional, List
 import time
+import asyncio
+import json
 from backend.cache import cache
 from backend.utils.generate_completions import get_completions
 from backend.config import settings
@@ -45,6 +47,37 @@ class HistoryResponse(BaseModel):
     requests: List[Dict[str, Any]]
     total_count: int
 
+class LessonsRequest(BaseModel):
+    query: str
+    user_id: Optional[str] = None
+
+class LessonsResponse(BaseModel):
+    lessons: List[Dict[str, Any]]
+    success: bool
+    processing_time: Optional[float] = None
+
+class RelatedQuestionsRequest(BaseModel):
+    query: str
+    user_id: Optional[str] = None
+
+class RelatedQuestionsResponse(BaseModel):
+    related_questions: List[Dict[str, Any]]
+    success: bool
+    processing_time: Optional[float] = None
+
+class FlashcardsRequest(BaseModel):
+    lesson: Dict[str, Any]
+    user_id: Optional[str] = None
+
+class Flashcard(BaseModel):
+    question: str
+    answer: str
+
+class FlashcardsResponse(BaseModel):
+    flashcards: List[Flashcard]
+    success: bool
+    processing_time: Optional[float] = None
+
 # AI completion endpoint with background processing option
 @router.post("/completions", response_model=CompletionResponse)
 async def create_completion(request: CompletionRequest):
@@ -79,7 +112,7 @@ async def create_completion(request: CompletionRequest):
             )
         
         # Synchronous processing
-        start_time = time.time()
+        start_time = time.perf_counter()
         
         # Use cache to avoid redundant API calls
         cache_key = (str(request.prompt), instructions)
@@ -96,16 +129,16 @@ async def create_completion(request: CompletionRequest):
             else:
                 response = await get_completions(request.prompt, instructions)
                 performance_monitor.record_cache_miss()
-                # Store in cache
-                await cache.set_cache(cache_key, response)
+                # Store in cache (don't await to avoid blocking)
+                asyncio.create_task(cache.set_cache(cache_key, response))
         except Exception:
             # Fallback to direct call
             response = await get_completions(request.prompt, instructions)
             performance_monitor.record_cache_miss()
         
-        processing_time = time.time() - start_time
+        processing_time = time.perf_counter() - start_time
         
-        # Save to history in background
+        # Save to history in background (non-blocking)
         asyncio.create_task(db.save_request_history(
             prompt=str(request.prompt),
             response=response,
@@ -114,8 +147,10 @@ async def create_completion(request: CompletionRequest):
             user_id=request.user_id
         ))
         
-        # Record performance metrics
-        performance_monitor.record_request("/api/completions", processing_time, success=True)
+        # Record performance metrics (non-blocking)
+        asyncio.create_task(asyncio.to_thread(
+            performance_monitor.record_request, "/api/completions", processing_time, True
+        ))
         
         return CompletionResponse(
             response=response,
@@ -126,7 +161,10 @@ async def create_completion(request: CompletionRequest):
     except HTTPException:
         raise
     except Exception as e:
-        performance_monitor.record_request("/api/completions", 0, success=False)
+        # Record error in background (non-blocking)
+        asyncio.create_task(asyncio.to_thread(
+            performance_monitor.record_request, "/api/completions", 0, False
+        ))
         raise HTTPException(
             status_code=500,
             detail=f"Error generating completion: {str(e)}"
@@ -175,6 +213,297 @@ async def create_batch_completion(request: BatchCompletionRequest):
         raise HTTPException(
             status_code=500,
             detail=f"Error submitting batch task: {str(e)}"
+        )
+
+# Generate lessons endpoint
+@router.post("/lessons", response_model=LessonsResponse)
+async def generate_lessons(request: LessonsRequest):
+    """
+    Generate 5 structured lessons/guides to help understand and answer a query.
+    """
+    try:
+        start_time = time.perf_counter()
+        
+        # Get lessons instruction
+        instructions = get_instruction("lessons")
+        
+        # Use cache to avoid redundant API calls
+        cache_key = (f"lessons:{request.query}", instructions)
+        
+        # Check if we have a cache hit
+        try:
+            cached_response = await cache.get_cache(cache_key)
+            if cached_response:
+                response_data = cached_response
+                performance_monitor.record_cache_hit()
+            else:
+                response_data = await get_completions(request.query, instructions)
+                performance_monitor.record_cache_miss()
+                # Store in cache (non-blocking)
+                asyncio.create_task(cache.set_cache(cache_key, response_data))
+        except Exception:
+            # Fallback to direct call
+            response_data = await get_completions(request.query, instructions)
+            performance_monitor.record_cache_miss()
+        
+        processing_time = time.perf_counter() - start_time
+        
+        # Parse JSON response
+        try:
+            parsed_response = json.loads(response_data)
+            lessons = parsed_response.get("lessons", [])
+        except json.JSONDecodeError:
+            # If JSON parsing fails, return error
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to parse lessons response"
+            )
+        
+        # Save to history in background (non-blocking)
+        asyncio.create_task(db.save_request_history(
+            prompt=f"lessons:{request.query}",
+            response=response_data,
+            instructions=instructions,
+            processing_time=processing_time,
+            user_id=request.user_id
+        ))
+        # Save generated lessons to lessons_history table
+        asyncio.create_task(db.save_lessons_history(
+            user_id=request.user_id,
+            query=request.query,
+            lessons_json=json.dumps(lessons),
+            processing_time=processing_time
+        ))
+        # Background flashcard generation for each lesson
+        async def generate_and_save_flashcards(lesson, user_id, processing_time):
+            try:
+                instructions = get_instruction("flashcards")
+                lesson_prompt = json.dumps(lesson)
+                response_data = await get_completions(lesson_prompt, instructions)
+                parsed_response = json.loads(response_data)
+                flashcards = parsed_response.get("flashcards", [])
+                await db.save_flashcards_history(
+                    user_id=user_id,
+                    lesson_json=lesson_prompt,
+                    flashcards_json=json.dumps(flashcards),
+                    processing_time=processing_time
+                )
+            except Exception as e:
+                # Optionally log error
+                pass
+        for lesson in lessons:
+            asyncio.create_task(generate_and_save_flashcards(lesson, request.user_id, processing_time))
+        
+        # Record performance metrics (non-blocking)
+        asyncio.create_task(asyncio.to_thread(
+            performance_monitor.record_request, "/api/lessons", processing_time, True
+        ))
+        
+        return LessonsResponse(
+            lessons=lessons,
+            success=True,
+            processing_time=processing_time
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Record error in background (non-blocking)
+        asyncio.create_task(asyncio.to_thread(
+            performance_monitor.record_request, "/api/lessons", 0, False
+        ))
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error generating lessons: {str(e)}"
+        )
+
+# Generate related questions endpoint
+@router.post("/related-questions", response_model=RelatedQuestionsResponse)
+async def generate_related_questions(request: RelatedQuestionsRequest):
+    """
+    Generate 5 related questions to help explore different aspects of a topic.
+    """
+    try:
+        start_time = time.perf_counter()
+        
+        # Get related questions instruction
+        instructions = get_instruction("related_questions")
+        
+        # Use cache to avoid redundant API calls
+        cache_key = (f"related_questions:{request.query}", instructions)
+        
+        # Check if we have a cache hit
+        try:
+            cached_response = await cache.get_cache(cache_key)
+            if cached_response:
+                response_data = cached_response
+                performance_monitor.record_cache_hit()
+            else:
+                response_data = await get_completions(request.query, instructions)
+                performance_monitor.record_cache_miss()
+                # Store in cache (non-blocking)
+                asyncio.create_task(cache.set_cache(cache_key, response_data))
+        except Exception:
+            # Fallback to direct call
+            response_data = await get_completions(request.query, instructions)
+            performance_monitor.record_cache_miss()
+        
+        processing_time = time.perf_counter() - start_time
+        
+        # Parse JSON response
+        try:
+            parsed_response = json.loads(response_data)
+            related_questions = parsed_response.get("related_questions", [])
+        except json.JSONDecodeError:
+            # If JSON parsing fails, return error
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to parse related questions response"
+            )
+        
+        # Save to history in background (non-blocking)
+        asyncio.create_task(db.save_request_history(
+            prompt=f"related_questions:{request.query}",
+            response=response_data,
+            instructions=instructions,
+            processing_time=processing_time,
+            user_id=request.user_id
+        ))
+        # Save generated related questions to related_questions_history table
+        asyncio.create_task(db.save_related_questions_history(
+            user_id=request.user_id,
+            query=request.query,
+            questions_json=json.dumps(related_questions),
+            processing_time=processing_time
+        ))
+        
+        # Record performance metrics (non-blocking)
+        asyncio.create_task(asyncio.to_thread(
+            performance_monitor.record_request, "/api/related-questions", processing_time, True
+        ))
+        
+        return RelatedQuestionsResponse(
+            related_questions=related_questions,
+            success=True,
+            processing_time=processing_time
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Record error in background (non-blocking)
+        asyncio.create_task(asyncio.to_thread(
+            performance_monitor.record_request, "/api/related-questions", 0, False
+        ))
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error generating related questions: {str(e)}"
+        )
+
+# Generate flashcards endpoint
+@router.post("/flashcards", response_model=FlashcardsResponse)
+async def generate_flashcards(request: FlashcardsRequest):
+    """
+    Generate flashcards (Q&A pairs) from a lesson object.
+    """
+    try:
+        start_time = time.perf_counter()
+        instructions = get_instruction("flashcards")
+        # Use the lesson as the prompt (stringify for LLM)
+        lesson_prompt = json.dumps(request.lesson)
+        cache_key = (f"flashcards:{lesson_prompt}", instructions)
+        try:
+            cached_response = await cache.get_cache(cache_key)
+            if cached_response:
+                response_data = cached_response
+                performance_monitor.record_cache_hit()
+            else:
+                response_data = await get_completions(lesson_prompt, instructions)
+                performance_monitor.record_cache_miss()
+                asyncio.create_task(cache.set_cache(cache_key, response_data))
+        except Exception:
+            response_data = await get_completions(lesson_prompt, instructions)
+            performance_monitor.record_cache_miss()
+        processing_time = time.perf_counter() - start_time
+        # Parse JSON response
+        try:
+            parsed_response = json.loads(response_data)
+            flashcards = parsed_response.get("flashcards", [])
+        except json.JSONDecodeError:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to parse flashcards response"
+            )
+        # (Optional) Save to DB here if desired
+        asyncio.create_task(db.save_flashcards_history(
+            user_id=request.user_id,
+            lesson_json=json.dumps(request.lesson),
+            flashcards_json=json.dumps(flashcards),
+            processing_time=processing_time
+        ))
+        # Record performance metrics (non-blocking)
+        asyncio.create_task(asyncio.to_thread(
+            performance_monitor.record_request, "/api/flashcards", processing_time, True
+        ))
+        return FlashcardsResponse(
+            flashcards=[Flashcard(**fc) for fc in flashcards],
+            success=True,
+            processing_time=processing_time
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        asyncio.create_task(asyncio.to_thread(
+            performance_monitor.record_request, "/api/flashcards", 0, False
+        ))
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error generating flashcards: {str(e)}"
+        )
+
+# Flashcards history retrieval endpoint
+class FlashcardsHistoryResponse(BaseModel):
+    history: List[Dict[str, Any]]
+    total_count: int
+
+class LessonsHistoryResponse(BaseModel):
+    history: List[Dict[str, Any]]
+    total_count: int
+
+@router.get("/lessons/history", response_model=LessonsHistoryResponse)
+async def get_lessons_history(limit: int = 50, user_id: Optional[str] = None, query: Optional[str] = None):
+    """Get recent lessons generation history"""
+    try:
+        history = await db.get_lessons_history(limit=limit, user_id=user_id, query=query)
+        return LessonsHistoryResponse(
+            history=history,
+            total_count=len(history)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error retrieving lessons history: {str(e)}"
+        )
+
+# Update flashcards history retrieval endpoint to allow filtering by lesson_json or lesson_id
+@router.get("/flashcards/history", response_model=FlashcardsHistoryResponse)
+async def get_flashcards_history(limit: int = 50, user_id: Optional[str] = None, lesson_json: Optional[str] = None, lesson_id: Optional[int] = None):
+    """Get recent flashcards generation history (optionally filter by lesson)"""
+    try:
+        history = await db.get_flashcards_history(limit=limit, user_id=user_id)
+        # Filter in-memory if lesson_json or lesson_id is provided
+        if lesson_json:
+            history = [h for h in history if h.get("lesson_json") == lesson_json]
+        if lesson_id:
+            history = [h for h in history if h.get("id") == lesson_id]
+        return FlashcardsHistoryResponse(
+            history=history,
+            total_count=len(history)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error retrieving flashcards history: {str(e)}"
         )
 
 # Request history endpoint
@@ -260,5 +589,4 @@ async def health_check():
         "cache": cache.get_stats()
     }
 
-# Import asyncio for background tasks
-import asyncio 
+ 

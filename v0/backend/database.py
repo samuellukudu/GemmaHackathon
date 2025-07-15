@@ -64,6 +64,42 @@ class Database:
                 )
             """)
             
+            # Lessons history table
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS lessons_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT,
+                    query TEXT NOT NULL,
+                    lessons_json TEXT NOT NULL,
+                    processing_time REAL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            # Related questions history table
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS related_questions_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT,
+                    query TEXT NOT NULL,
+                    questions_json TEXT NOT NULL,
+                    processing_time REAL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            # Flashcards history table
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS flashcards_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT,
+                    lesson_json TEXT NOT NULL,
+                    flashcards_json TEXT NOT NULL,
+                    processing_time REAL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
             # Create indexes for better performance
             await db.execute("CREATE INDEX IF NOT EXISTS idx_cache_accessed_at ON cache(accessed_at)")
             await db.execute("CREATE INDEX IF NOT EXISTS idx_request_history_created_at ON request_history(created_at)")
@@ -200,6 +236,78 @@ class Database:
                 "total_size_bytes": total_size,
                 "total_size_mb": round(total_size / (1024 * 1024), 2)
             }
+
+    async def save_lessons_history(self, user_id: str, query: str, lessons_json: str, processing_time: float = None):
+        """Save generated lessons to lessons_history table"""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                """
+                INSERT INTO lessons_history (user_id, query, lessons_json, processing_time)
+                VALUES (?, ?, ?, ?)
+                """,
+                (user_id, query, lessons_json, processing_time)
+            )
+            await db.commit()
+
+    async def save_related_questions_history(self, user_id: str, query: str, questions_json: str, processing_time: float = None):
+        """Save generated related questions to related_questions_history table"""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                """
+                INSERT INTO related_questions_history (user_id, query, questions_json, processing_time)
+                VALUES (?, ?, ?, ?)
+                """,
+                (user_id, query, questions_json, processing_time)
+            )
+            await db.commit()
+
+    async def save_flashcards_history(self, user_id: str, lesson_json: str, flashcards_json: str, processing_time: float = None):
+        """Save generated flashcards to flashcards_history table"""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                """
+                INSERT INTO flashcards_history (user_id, lesson_json, flashcards_json, processing_time)
+                VALUES (?, ?, ?, ?)
+                """,
+                (user_id, lesson_json, flashcards_json, processing_time)
+            )
+            await db.commit()
+
+    async def get_flashcards_history(self, limit: int = 50, user_id: str = None) -> List[Dict]:
+        """Get recent flashcards history"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            query = "SELECT * FROM flashcards_history"
+            params = []
+            if user_id:
+                query += " WHERE user_id = ?"
+                params.append(user_id)
+            query += " ORDER BY created_at DESC LIMIT ?"
+            params.append(limit)
+            async with db.execute(query, params) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(row) for row in rows]
+
+    async def get_lessons_history(self, limit: int = 50, user_id: str = None, query: str = None) -> List[Dict]:
+        """Get recent lessons history"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            query_str = "SELECT * FROM lessons_history"
+            params = []
+            if user_id and query:
+                query_str += " WHERE user_id = ? AND query = ?"
+                params.extend([user_id, query])
+            elif user_id:
+                query_str += " WHERE user_id = ?"
+                params.append(user_id)
+            elif query:
+                query_str += " WHERE query = ?"
+                params.append(query)
+            query_str += " ORDER BY created_at DESC LIMIT ?"
+            params.append(limit)
+            async with db.execute(query_str, params) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(row) for row in rows]
 
 # Global database instance
 db = Database() 

@@ -23,9 +23,13 @@ class HybridCache:
         key_str = json.dumps(key_data, sort_keys=True)
         return hashlib.sha256(key_str.encode()).hexdigest()
     
-    async def get_cache(self, key: str) -> Optional[Any]:
+    async def get_cache(self, key: Any) -> Optional[Any]:
         """Get value from cache only (no computation)"""
-        cache_key = self._generate_key(key)
+        # Handle both string keys and tuple keys
+        if isinstance(key, tuple):
+            cache_key = self._generate_key(*key)
+        else:
+            cache_key = self._generate_key(key)
         # Try memory cache first
         async with self.lock:
             if cache_key in self.cache:
@@ -117,9 +121,13 @@ class HybridCache:
         self.order.append(key)
         self.access_times[key] = datetime.now()
     
-    async def set_cache(self, key: str, value: Any, ttl_hours: int = 24):
+    async def set_cache(self, key: Any, value: Any, ttl_hours: int = 24):
         """Set value in cache with TTL"""
-        cache_key = self._generate_key(key)
+        # Handle both string keys and tuple keys
+        if isinstance(key, tuple):
+            cache_key = self._generate_key(*key)
+        else:
+            cache_key = self._generate_key(key)
         
         # Store in memory cache
         async with self.lock:
