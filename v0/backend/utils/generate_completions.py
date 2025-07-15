@@ -2,7 +2,7 @@ from openai import AsyncOpenAI, OpenAI
 import asyncio
 import json
 from typing import AsyncIterator
-from typing import Union, List, Dict, Literal
+from typing import Union, List, Dict, Any, Literal
 from dotenv import load_dotenv
 import os
 from pydantic import BaseModel
@@ -40,13 +40,29 @@ def process_input(data: Union[str, List[Dict[str, str]]]) -> Union[str, List[Dic
     else:
         raise TypeError("Input must be a string or a list of dictionaries with a 'content' field")
 
+def lesson_to_text(lesson: Dict[str, Any]) -> str:
+    """Format a lesson dict as a readable string for LLM input."""
+    return (
+        f"Lesson Title: {lesson.get('title', '')}\n"
+        f"Overview: {lesson.get('overview', '')}\n"
+        f"Key Concepts: {', '.join(lesson.get('key_concepts', []))}\n"
+        f"Examples: {', '.join(lesson.get('examples', []))}\n"
+        f"Difficulty Level: {lesson.get('difficulty_level', '')}\n"
+    )
+
 async def get_completions(
-    prompt: Union[str, List[Dict[str, str]]],
+    prompt: Union[str, Dict[str, Any], List[Dict[str, str]]],
     instructions: str
 ) -> str:
     try:
         if isinstance(prompt, list):
             formatted_query = flatten_messages(prompt)
+        elif isinstance(prompt, dict):
+            # If the dict looks like a lesson, format it as text
+            if all(k in prompt for k in ["title", "overview", "key_concepts", "examples", "difficulty_level"]):
+                formatted_query = lesson_to_text(prompt)
+            else:
+                formatted_query = str(prompt)
         else:
             formatted_query = prompt
 

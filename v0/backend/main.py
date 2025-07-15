@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import os
 import asyncio
+import logging
 
 # Import configuration and routes
 from backend.config import settings, validate_environment
@@ -17,6 +18,13 @@ except ValueError as e:
     print(f"Configuration error: {e}")
     print("Please set the required environment variables: BASE_URL, API_KEY")
     exit(1)
+
+# Set up logging configuration
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(name)s %(message)s',
+)
+logger = logging.getLogger(__name__)
 
 # Create FastAPI app
 app = FastAPI(

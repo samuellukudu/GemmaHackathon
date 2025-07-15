@@ -6,6 +6,7 @@ from datetime import datetime
 import json
 from backend.database import db
 from backend.utils.generate_completions import get_completions
+import os
 
 class TaskQueue:
     def __init__(self, max_workers: int = 4):
@@ -223,4 +224,9 @@ class TaskQueue:
         }
 
 # Global task queue instance
-task_queue = TaskQueue() 
+cpu_cores = os.cpu_count() or 2
+if cpu_cores > 2:
+    worker_count = cpu_cores // 2
+else:
+    worker_count = 2
+task_queue = TaskQueue(max_workers=worker_count) 

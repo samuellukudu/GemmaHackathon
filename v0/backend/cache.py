@@ -14,11 +14,24 @@ class HybridCache:
         self.lock = asyncio.Lock()
         self.access_times: Dict[str, datetime] = {}
     
+    def _normalize(self, obj):
+        """Normalize input for cache key: strip/lower strings, sort dicts."""
+        if isinstance(obj, str):
+            return obj.strip().lower()
+        elif isinstance(obj, dict):
+            return {k: self._normalize(obj[k]) for k in sorted(obj)}
+        elif isinstance(obj, (list, tuple)):
+            return [self._normalize(x) for x in obj]
+        else:
+            return obj
+
     def _generate_key(self, *args, **kwargs) -> str:
-        """Generate a consistent cache key from arguments"""
+        """Generate a consistent cache key from arguments. Always include user_id in the key for user-specific responses."""
+        norm_args = self._normalize(args)
+        norm_kwargs = {k: self._normalize(v) for k, v in kwargs.items()}
         key_data = {
-            'args': args,
-            'kwargs': sorted(kwargs.items())
+            'args': norm_args,
+            'kwargs': sorted(norm_kwargs.items())
         }
         key_str = json.dumps(key_data, sort_keys=True)
         return hashlib.sha256(key_str.encode()).hexdigest()
