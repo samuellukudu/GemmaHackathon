@@ -6,6 +6,7 @@ from datetime import datetime
 import json
 from backend.database import db
 from backend.utils.generate_completions import get_completions
+from backend.profiler import profiler, profile_task
 import os
 
 class TaskQueue:
@@ -70,6 +71,10 @@ class TaskQueue:
                         result = await self._process_completion_task(payload)
                     elif task_type == 'batch_completion':
                         result = await self._process_batch_completion_task(payload)
+                    elif task_type == 'query_related_questions':
+                        result = await self._process_query_related_questions_task(payload)
+                    elif task_type == 'query_lessons':
+                        result = await self._process_query_lessons_task(payload)
                     else:
                         raise ValueError(f"Unknown task type: {task_type}")
                     
@@ -91,6 +96,7 @@ class TaskQueue:
                 print(f"Worker {worker_name} error: {e}")
                 continue
     
+    @profile_task("task_queue.process_completion")
     async def _process_completion_task(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Process a single completion task"""
         start_time = time.time()
@@ -118,27 +124,34 @@ class TaskQueue:
             'success': True
         }
     
+    @profile_task("task_queue.process_batch_completion")
     async def _process_batch_completion_task(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Process a batch of completion tasks"""
+        """Process a batch of completion tasks concurrently"""
         start_time = time.time()
         prompts = payload['prompts']
         instructions = payload.get('instructions')
-        results = []
         
-        for prompt in prompts:
+        async def process_single_prompt(prompt):
+            """Process a single prompt and return result with error handling"""
             try:
                 response = await get_completions(prompt, instructions)
-                results.append({
+                return {
                     'prompt': prompt,
                     'response': response,
                     'success': True
-                })
+                }
             except Exception as e:
-                results.append({
+                return {
                     'prompt': prompt,
                     'error': str(e),
                     'success': False
-                })
+                }
+        
+        # Process all prompts concurrently using asyncio.gather
+        results = await asyncio.gather(
+            *[process_single_prompt(prompt) for prompt in prompts],
+            return_exceptions=False  # Let individual errors be handled in process_single_prompt
+        )
         
         processing_time = time.time() - start_time
         
@@ -150,7 +163,9 @@ class TaskQueue:
         }
     
     async def _cleanup_old_tasks(self):
-        """Clean up old completed tasks from memory"""
+        """Clean up old completed tasks from memory and log performance metrics"""
+        cleanup_count = 0
+        
         while self._running:
             try:
                 # Remove tasks older than 1 hour from memory
@@ -166,10 +181,16 @@ class TaskQueue:
                     if task_id in self.task_results:
                         del self.task_results[task_id]
                 
+                # Log performance metrics every 10 cleanup cycles (50 minutes)
+                cleanup_count += 1
+                if cleanup_count % 10 == 0:
+                    print(f"[TaskQueue] Periodic performance check (cleanup #{cleanup_count})")
+                    self.log_performance_summary()
+                
                 await asyncio.sleep(300)  # Clean up every 5 minutes
                 
             except Exception as e:
-                print(f"Cleanup error: {e}")
+                print(f"[TaskQueue] Cleanup error: {e}")
                 await asyncio.sleep(60)
     
     async def submit_task(self, task_type: str, payload: Dict[str, Any]) -> str:
@@ -222,11 +243,212 @@ class TaskQueue:
             'workers': len(self._workers),
             'running': self._running
         }
+    
+    def get_performance_metrics(self) -> Dict[str, Any]:
+        """Get comprehensive performance metrics including profiling data"""
+        queue_stats = self.get_queue_stats()
+        profiling_report = profiler.get_performance_report()
+        
+        return {
+            'queue_stats': queue_stats,
+            'profiling_report': profiling_report,
+            'timestamp': time.time()
+        }
+    
+    def log_performance_summary(self):
+        """Log performance summary including blocking code detection"""
+        profiler.log_performance_summary()
+        
+        # Log queue-specific metrics
+        stats = self.get_queue_stats()
+        print(f"[TaskQueue] Queue size: {stats['queue_size']}, Active tasks: {stats['active_tasks']}, Workers: {stats['workers']}")
+        
+        # Warn about queue backlog
+        if stats['queue_size'] > 10:
+            print(f"[TaskQueue] WARNING: Large queue backlog detected ({stats['queue_size']} tasks)")
+        
+        if stats['active_tasks'] > stats['workers'] * 2:
+            print(f"[TaskQueue] WARNING: High task load detected ({stats['active_tasks']} active tasks for {stats['workers']} workers)")
+    
+    @profile_task("task_queue.process_query_related_questions")
+    async def _process_query_related_questions_task(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Process query related questions generation task"""
+        from backend.instructions import get_instruction
+        from backend.cache import cache
+        from backend.monitoring import performance_monitor
+        import json
+        
+        start_time = time.time()
+        query = payload['query']
+        user_id = payload.get('user_id')
+        query_id = payload.get('query_id')
+        
+        try:
+            instructions = get_instruction("related_questions")
+            cache_key = (f"related_questions:{query}", instructions)
+            
+            # Check cache first
+            try:
+                cached_response = await cache.get_cache(cache_key)
+                if cached_response:
+                    response_data = cached_response
+                    performance_monitor.record_cache_hit()
+                else:
+                    response_data = await get_completions(query, instructions)
+                    performance_monitor.record_cache_miss()
+                    # Store in cache (non-blocking)
+                    import asyncio
+                    asyncio.create_task(cache.set_cache(cache_key, response_data))
+            except Exception:
+                response_data = await get_completions(query, instructions)
+                performance_monitor.record_cache_miss()
+            
+            # Parse response
+            try:
+                parsed_response = json.loads(response_data)
+                related_questions = parsed_response.get("related_questions", [])
+            except json.JSONDecodeError:
+                related_questions = []
+            
+            processing_time = time.time() - start_time
+            
+            # Save to database
+            await db.save_request_history(
+                prompt=f"related_questions:{query}",
+                response=response_data,
+                instructions=instructions,
+                processing_time=processing_time,
+                user_id=user_id
+            )
+            await db.save_related_questions_history(
+                user_id=user_id,
+                query=query,
+                questions_json=json.dumps(related_questions),
+                processing_time=processing_time,
+                query_id=query_id
+            )
+            
+            return {
+                'related_questions': related_questions,
+                'processing_time': processing_time,
+                'success': True
+            }
+        except Exception as e:
+            processing_time = time.time() - start_time
+            return {
+                'error': str(e),
+                'processing_time': processing_time,
+                'success': False
+            }
+    
+    @profile_task("task_queue.process_query_lessons")
+    async def _process_query_lessons_task(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Process query lessons generation task"""
+        from backend.instructions import get_instruction
+        from backend.cache import cache
+        from backend.monitoring import performance_monitor
+        import json
+        import asyncio
+        
+        start_time = time.time()
+        query = payload['query']
+        user_id = payload.get('user_id')
+        query_id = payload.get('query_id')
+        
+        try:
+            instructions = get_instruction("lessons")
+            cache_key = (f"lessons:{query}", instructions)
+            
+            # Check cache first
+            try:
+                cached_response = await cache.get_cache(cache_key)
+                if cached_response:
+                    response_data = cached_response
+                    performance_monitor.record_cache_hit()
+                else:
+                    response_data = await get_completions(query, instructions)
+                    performance_monitor.record_cache_miss()
+                    # Store in cache (non-blocking)
+                    asyncio.create_task(cache.set_cache(cache_key, response_data))
+            except Exception:
+                response_data = await get_completions(query, instructions)
+                performance_monitor.record_cache_miss()
+            
+            # Parse response
+            try:
+                parsed_response = json.loads(response_data)
+                lessons = parsed_response.get("lessons", [])
+            except json.JSONDecodeError:
+                lessons = []
+            
+            processing_time = time.time() - start_time
+            
+            # Save to database
+            await db.save_request_history(
+                prompt=f"lessons:{query}",
+                response=response_data,
+                instructions=instructions,
+                processing_time=processing_time,
+                user_id=user_id
+            )
+            await db.save_lessons_history(
+                user_id=user_id,
+                query=query,
+                lessons_json=json.dumps(lessons),
+                processing_time=processing_time,
+                query_id=query_id
+            )
+            
+            # Schedule flashcard generation in background (non-blocking)
+            if lessons:
+                async def generate_flashcards_for_lesson(lesson):
+                    try:
+                        flashcard_instructions = get_instruction("flashcards")
+                        lesson_prompt = json.dumps(lesson)
+                        flashcard_response = await get_completions(lesson_prompt, flashcard_instructions)
+                        flashcard_parsed = json.loads(flashcard_response)
+                        flashcards = flashcard_parsed.get("flashcards", [])
+                        
+                        await db.save_flashcards_history(
+                            user_id=user_id,
+                            lesson_json=lesson_prompt,
+                            flashcards_json=json.dumps(flashcards),
+                            processing_time=None,
+                            query_id=query_id
+                        )
+                    except Exception as e:
+                        print(f"Error generating flashcards for lesson: {e}")
+                
+                flashcard_tasks = [generate_flashcards_for_lesson(lesson) for lesson in lessons]
+                asyncio.create_task(asyncio.gather(*flashcard_tasks, return_exceptions=True))
+            
+            return {
+                'lessons': lessons,
+                'processing_time': processing_time,
+                'success': True
+            }
+        except Exception as e:
+            processing_time = time.time() - start_time
+            return {
+                'error': str(e),
+                'processing_time': processing_time,
+                'success': False
+            }
 
 # Global task queue instance
-cpu_cores = os.cpu_count() or 2
-if cpu_cores > 2:
-    worker_count = cpu_cores // 2
+# Check if worker count is manually set via environment variable
+manual_workers = os.getenv("TASK_QUEUE_WORKERS")
+if manual_workers:
+    worker_count = int(manual_workers)
+    print(f"[TaskQueue] Using manually configured worker count: {worker_count}")
 else:
-    worker_count = 2
-task_queue = TaskQueue(max_workers=worker_count) 
+    # Auto-calculate based on CPU cores
+    cpu_cores = os.cpu_count() or 2
+    if cpu_cores > 4:
+        worker_count = cpu_cores // 2
+        print(f"[TaskQueue] Detected {cpu_cores} CPU cores, using {worker_count} workers (half of available cores)")
+    else:
+        worker_count = min(cpu_cores, 4)
+        print(f"[TaskQueue] Detected {cpu_cores} CPU cores, using {worker_count} workers (limited to available cores, max 4)")
+
+task_queue = TaskQueue(max_workers=worker_count)

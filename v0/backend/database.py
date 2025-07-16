@@ -228,6 +228,16 @@ class Database:
                 row = await cursor.fetchone()
                 return dict(row) if row else None
     
+    async def get_pending_tasks(self) -> List[Dict]:
+        """Get all pending or processing tasks for recovery on startup"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM background_tasks WHERE status IN ('pending', 'processing')"
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(row) for row in rows]
+    
     async def get_cache_stats(self) -> Dict[str, Any]:
         """Get cache statistics from database"""
         async with aiosqlite.connect(self.db_path) as db:
@@ -360,4 +370,4 @@ class Database:
                 return [dict(row) for row in rows]
 
 # Global database instance
-db = Database() 
+db = Database()

@@ -6,12 +6,21 @@ from typing import Union, List, Dict, Any, Literal
 from dotenv import load_dotenv
 import os
 from pydantic import BaseModel
+import httpx
+from backend.profiler import profile_task
 load_dotenv()
 
-# Initialize the async client
+# Initialize the async client with higher connection limits for concurrency
 client = AsyncOpenAI(
     base_url=os.getenv("BASE_URL"),
     api_key=os.getenv("API_KEY"),
+    http_client=httpx.AsyncClient(
+        limits=httpx.Limits(
+            max_connections=100,  # Total connection pool size
+            max_keepalive_connections=20,  # Keep-alive connections
+        ),
+        timeout=httpx.Timeout(60.0)  # 60 second timeout
+    )
 )
 
 class Message(BaseModel):
@@ -50,6 +59,7 @@ def lesson_to_text(lesson: Dict[str, Any]) -> str:
         f"Difficulty Level: {lesson.get('difficulty_level', '')}\n"
     )
 
+@profile_task("llm.get_completions")
 async def get_completions(
     prompt: Union[str, Dict[str, Any], List[Dict[str, str]]],
     instructions: str

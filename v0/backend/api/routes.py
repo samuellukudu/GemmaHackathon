@@ -11,6 +11,7 @@ from backend.instructions import get_instruction, list_instruction_types
 from backend.task_queue import task_queue
 from backend.database import db
 from backend.monitoring import performance_monitor
+from backend.profiler import profile_endpoint
 import logging
 import uuid
 
@@ -91,9 +92,12 @@ class QueryResponse(BaseModel):
     success: bool
     message: str
     query_id: Optional[str] = None
+    related_questions_task_id: Optional[str] = None
+    lessons_task_id: Optional[str] = None
 
 # AI completion endpoint with background processing option
 @router.post("/completions", response_model=CompletionResponse)
+@profile_endpoint("api.create_completion")
 async def create_completion(request: CompletionRequest):
     """
     Generate AI completions using the configured LLM model.
@@ -203,6 +207,7 @@ async def get_task_status(task_id: str):
 
 # Batch completion endpoint
 @router.post("/completions/batch", response_model=BackgroundTaskResponse)
+@profile_endpoint("api.create_batch_completion")
 async def create_batch_completion(request: BatchCompletionRequest):
     """Submit a batch of completion requests for background processing"""
     try:
@@ -231,6 +236,7 @@ async def create_batch_completion(request: BatchCompletionRequest):
 
 # Generate lessons endpoint
 @router.post("/lessons", response_model=LessonsResponse)
+@profile_endpoint("api.generate_lessons")
 async def generate_lessons(request: LessonsRequest):
     """
     Generate 5 structured lessons/guides to help understand and answer a query.
@@ -290,7 +296,7 @@ async def generate_lessons(request: LessonsRequest):
             processing_time=processing_time,
             query_id=query_id
         ))
-        # Background flashcard generation for each lesson
+        # Schedule background flashcard generation for each lesson (non-blocking)
         async def generate_and_save_flashcards(lesson, user_id, processing_time):
             try:
                 instructions = get_instruction("flashcards")
@@ -309,9 +315,11 @@ async def generate_lessons(request: LessonsRequest):
                 )
             except Exception as e:
                 logger.error(f"Error generating flashcards for lesson: {lesson}. Exception: {e}", exc_info=True)
-        flashcard_tasks = [generate_and_save_flashcards(lesson, request.user_id, processing_time) for lesson in lessons]
-        if flashcard_tasks:
-            await asyncio.gather(*flashcard_tasks)
+        
+        # Schedule flashcard generation in background without waiting
+        if lessons:
+            flashcard_tasks = [generate_and_save_flashcards(lesson, request.user_id, processing_time) for lesson in lessons]
+            asyncio.create_task(asyncio.gather(*flashcard_tasks, return_exceptions=True))
         
         # Record performance metrics (non-blocking)
         asyncio.create_task(asyncio.to_thread(
@@ -487,125 +495,46 @@ async def generate_flashcards(request: FlashcardsRequest):
 
 # Query endpoint
 @router.post("/query", response_model=QueryResponse)
+@profile_endpoint("api.process_query")
 async def process_query(request: QueryRequest):
     """
-    Accepts a query and user_id, triggers both related questions and lessons generation concurrently,
-    stores both in the database, and returns a status message.
+    Accepts a query and user_id, triggers both related questions and lessons generation as background tasks,
+    and returns immediately with task IDs for status tracking.
     """
     try:
         query_id = str(uuid.uuid4())
-        async def generate_and_save_related():
-            try:
-                instructions = get_instruction("related_questions")
-                cache_key = (f"related_questions:{request.query}", instructions)
-                try:
-                    cached_response = await cache.get_cache(cache_key)
-                    if cached_response:
-                        response_data = cached_response
-                        performance_monitor.record_cache_hit()
-                    else:
-                        response_data = await get_completions(request.query, instructions)
-                        performance_monitor.record_cache_miss()
-                        asyncio.create_task(cache.set_cache(cache_key, response_data))
-                except Exception:
-                    response_data = await get_completions(request.query, instructions)
-                    performance_monitor.record_cache_miss()
-                try:
-                    parsed_response = json.loads(response_data)
-                    related_questions = parsed_response.get("related_questions", [])
-                    if not related_questions:
-                        logger.warning(f"[QueryAPI] No related questions generated for query: {request.query}. Raw response: {response_data}")
-                except json.JSONDecodeError:
-                    logger.error(f"[QueryAPI] Failed to parse related questions response for query: {request.query}. Raw response: {response_data}")
-                    related_questions = []
-                await db.save_request_history(
-                    prompt=f"related_questions:{request.query}",
-                    response=response_data,
-                    instructions=instructions,
-                    processing_time=None,
-                    user_id=request.user_id
-                )
-                await db.save_related_questions_history(
-                    user_id=request.user_id,
-                    query=request.query,
-                    questions_json=json.dumps(related_questions),
-                    processing_time=None,
-                    query_id=query_id
-                )
-            except Exception as e:
-                logger.error(f"[QueryAPI] Error in related questions generation: {e}", exc_info=True)
-
-        async def generate_and_save_lessons():
-            try:
-                instructions = get_instruction("lessons")
-                cache_key = (f"lessons:{request.query}", instructions)
-                try:
-                    cached_response = await cache.get_cache(cache_key)
-                    if cached_response:
-                        response_data = cached_response
-                        performance_monitor.record_cache_hit()
-                    else:
-                        response_data = await get_completions(request.query, instructions)
-                        performance_monitor.record_cache_miss()
-                        asyncio.create_task(cache.set_cache(cache_key, response_data))
-                except Exception:
-                    response_data = await get_completions(request.query, instructions)
-                    performance_monitor.record_cache_miss()
-                try:
-                    parsed_response = json.loads(response_data)
-                    lessons = parsed_response.get("lessons", [])
-                    if not lessons:
-                        logger.warning(f"[QueryAPI] No lessons generated for query: {request.query}. Raw response: {response_data}")
-                except json.JSONDecodeError:
-                    logger.error(f"[QueryAPI] Failed to parse lessons response for query: {request.query}. Raw response: {response_data}")
-                    lessons = []
-                await db.save_request_history(
-                    prompt=f"lessons:{request.query}",
-                    response=response_data,
-                    instructions=instructions,
-                    processing_time=None,
-                    user_id=request.user_id
-                )
-                await db.save_lessons_history(
-                    user_id=request.user_id,
-                    query=request.query,
-                    lessons_json=json.dumps(lessons),
-                    processing_time=None,
-                    query_id=query_id
-                )
-                # Trigger background flashcard generation for each lesson
-                async def generate_and_save_flashcards(lesson, user_id):
-                    try:
-                        instructions = get_instruction("flashcards")
-                        lesson_prompt = json.dumps(lesson)
-                        response_data = await get_completions(lesson_prompt, instructions)
-                        parsed_response = json.loads(response_data)
-                        flashcards = parsed_response.get("flashcards", [])
-                        if not flashcards:
-                            logger.warning(f"[QueryAPI] No flashcards generated for lesson: {lesson_prompt}. Raw response: {response_data}")
-                        await db.save_flashcards_history(
-                            user_id=user_id,
-                            lesson_json=lesson_prompt,
-                            flashcards_json=json.dumps(flashcards),
-                            processing_time=None,
-                            query_id=query_id
-                        )
-                    except Exception as e:
-                        logger.error(f"[QueryAPI] Error generating flashcards for lesson: {lesson}. Exception: {e}", exc_info=True)
-                flashcard_tasks = [generate_and_save_flashcards(lesson, request.user_id) for lesson in lessons]
-                if flashcard_tasks:
-                    await asyncio.gather(*flashcard_tasks)
-            except Exception as e:
-                logger.error(f"[QueryAPI] Error in lessons generation: {e}", exc_info=True)
-
-        await asyncio.gather(
-            generate_and_save_related(),
-            generate_and_save_lessons()
+        
+        # Submit related questions generation as background task
+        related_task_id = await task_queue.submit_task(
+            "query_related_questions",
+            {
+                "query": request.query,
+                "user_id": request.user_id,
+                "query_id": query_id
+            }
         )
-        return QueryResponse(success=True, message="Related questions and lessons are being generated and stored.", query_id=query_id)
+        
+        # Submit lessons generation as background task
+        lessons_task_id = await task_queue.submit_task(
+            "query_lessons",
+            {
+                "query": request.query,
+                "user_id": request.user_id,
+                "query_id": query_id
+            }
+        )
+        
+        return QueryResponse(
+            success=True, 
+            message="Related questions and lessons generation started in background.", 
+            query_id=query_id,
+            related_questions_task_id=related_task_id,
+            lessons_task_id=lessons_task_id
+        )
     except Exception as e:
         logger.error(f"[QueryAPI] Error in process_query endpoint: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Error processing query.")
+
 
 # Flashcards history retrieval endpoint
 class FlashcardsHistoryResponse(BaseModel):
@@ -748,5 +677,23 @@ async def health_check():
         "task_queue": task_queue.get_queue_stats(),
         "cache": cache.get_stats()
     }
+
+# Performance monitoring endpoint
+@router.get("/performance/metrics")
+async def get_performance_metrics():
+    """Get comprehensive performance metrics including profiling data"""
+    try:
+        metrics = task_queue.get_performance_metrics()
+        return {
+            "status": "success",
+            "metrics": metrics,
+            "timestamp": time.time()
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+            "timestamp": time.time()
+        }
 
  

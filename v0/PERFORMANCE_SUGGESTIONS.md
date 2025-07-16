@@ -1,104 +1,190 @@
-# Performance Suggestions for GemmaHackathon Backend
+# Improving Background Task Concurrency and Startup Latency
 
-This document summarizes code-level suggestions to optimize the backend for efficient, responsive operation on a wide range of laptops. These focus on the API layer, background task/queue, cache, and database. (LLM/model changes are excluded as per requirements.)
-
----
-
-## 1. API Layer
-
-### a. Avoid Blocking Operations ✅ **IMPLEMENTED**
-- ✅ Ensure all I/O (DB, cache, LLM calls) is truly async.
-- ✅ Avoid synchronous file or network operations in endpoints.
-
-**Changes Made:**
-- Moved `import asyncio` to the top of routes.py for better organization
-- Changed `time.time()` to `time.perf_counter()` for more accurate timing
-- Made cache writes non-blocking by using `asyncio.create_task()` instead of `await`
-- Made performance monitoring non-blocking by using `asyncio.to_thread()`
-- Made database history saves non-blocking (already implemented)
-- Fixed cache methods to handle both tuple and string keys properly
-
-### b. Fast Return for Background Tasks
-- For long LLM tasks, consider always returning quickly and letting the client poll for results.
-- For synchronous requests, set a timeout (e.g., 10–15s); if exceeded, auto-convert to background.
+## Problem Summary
+- When a user enters a query, all background tasks are executed sequentially before returning a completion, causing a long wait (5-10 minutes) before the app is usable.
+- This is especially problematic on lower-end hardware.
+- The goal is to ensure background tasks (such as completions, batch completions, lesson/flashcard generation, etc.) are executed concurrently, not sequentially, to minimize user wait time and maximize throughput.
 
 ---
 
-## 2. Background Task & Queue System
+## Diagnosis
+1. **Current Implementation**
+   - The backend uses a custom `TaskQueue` (see `backend/task_queue.py`) with asyncio and a worker pool.
+   - Tasks are submitted to an asyncio queue and processed by a configurable number of worker coroutines.
+   - The number of workers is set based on CPU cores (default: half the cores, min 2).
+   - Some endpoints (e.g., `/api/completions`, `/api/completions/batch`) submit tasks to the queue for background processing.
+   - Some endpoints (e.g., `/api/lessons`, `/api/query`) use `asyncio.gather` or `asyncio.create_task` for concurrent sub-tasks (e.g., generating flashcards for each lesson).
 
-### a. Queue Backpressure & Limits
-- Add a max queue size (e.g., 100 tasks). If full, reject new tasks with a clear error.
+2. **Observed Issues**
+   - On startup, or when a query is submitted, all background tasks are executed sequentially, not concurrently.
+   - This leads to long delays before the user receives a response or the app is ready.
+   - Possible causes:
+     - The number of workers is too low for the workload.
+     - Some code paths (e.g., batch processing, flashcard generation) use blocking loops instead of concurrent execution.
+     - Some async tasks may be awaited sequentially instead of being scheduled concurrently.
+     - Heavy tasks may be CPU-bound, blocking the event loop.
 
+---
+
+## Detailed Plan to Fix
+
+### 1. **Increase Worker Concurrency**
+- **Action:**
+  - Review and increase the number of workers in `TaskQueue` (`max_workers`).
+  - Make this configurable via environment variable (already supported: `TASK_QUEUE_WORKERS`).
+  - On low-end hardware, experiment with 4-8 workers (or more if I/O-bound).
+- **Code:**
+  - In `backend/config.py`, set `TASK_QUEUE_WORKERS` to a higher value if needed.
+  - In `backend/task_queue.py`, ensure `max_workers` is set from config.
+
+### 2. **Ensure True Concurrency in Task Processing**
+- **Action:**
+  - In `TaskQueue`, verify that each worker runs independently and processes tasks as soon as they are available.
+  - Avoid any global locks or bottlenecks that would serialize task execution.
+  - For batch tasks (e.g., batch completions, flashcard generation), use `asyncio.gather` to run sub-tasks concurrently.
+- **Code:**
+  - Refactor any `for` loops that await each sub-task sequentially to use `asyncio.gather` or `asyncio.create_task`.
+  - Example:
+    ```python
+    # BAD: sequential
+    for prompt in prompts:
+        response = await get_completions(prompt, instructions)
+    # GOOD: concurrent
+    tasks = [get_completions(prompt, instructions) for prompt in prompts]
+    results = await asyncio.gather(*tasks)
+    ```
+
+### 3. **Optimize Startup and First-Request Latency**
+- **Action:**
+  - Ensure that on startup, the app does not block on long-running background tasks.
+  - Use FastAPI's `BackgroundTasks` or schedule non-critical initialization with `asyncio.create_task`.
+  - For endpoints, return immediately after scheduling background work, and provide a status endpoint for progress/results.
+- **Code:**
+  - In `main.py`, ensure `startup_event` only initializes resources, not heavy computation.
+  - In endpoints, use background task submission and return 202/accepted responses with task IDs.
+
+### 4. **Profile and Identify Blocking Code**
+- **Action:**
+  - Use logging and profiling to identify any blocking (CPU-bound or synchronous) code in the background task handlers.
+  - Offload CPU-bound work to a thread/process pool if necessary.
+- **Code:**
+  - Use `asyncio.to_thread` or `concurrent.futures.ThreadPoolExecutor` for blocking code.
+
+### 5. **Best Practices and Monitoring**
+- **Action:**
+  - Add monitoring/logging for queue size, worker utilization, and task latency.
+  - Alert if queue size grows too large or tasks are delayed.
+- **Code:**
+  - Use the `get_queue_stats()` method in `TaskQueue` for monitoring.
+  - Add periodic logging of queue stats.
+
+---
+
+## Additional Suggestions and Advanced Improvements
+
+### 6. **Graceful Degradation and User Feedback**
+- **Action:**
+  - Implement user-facing feedback for long-running tasks (e.g., progress updates, estimated time remaining, or notifications when tasks complete).
+  - For tasks that may take a long time, consider providing partial results or streaming updates if possible.
+- **Code:**
+  - Use WebSockets or Server-Sent Events (SSE) to push progress updates to the frontend.
+  - Add a polling endpoint for clients to check task progress and partial results.
+
+### 7. **Task Prioritization and Throttling**
+- **Action:**
+  - Allow for prioritization of urgent tasks (e.g., user-initiated vs. batch jobs).
+  - Implement throttling or rate-limiting to prevent overload on low-end hardware.
+- **Code:**
+  - Extend the `TaskQueue` to support priority queues (e.g., using `asyncio.PriorityQueue`).
+  - Add per-user or global rate limits using middleware or a decorator.
+
+### 8. **Timeouts and Task Cancellation**
+- **Action:**
+  - Set reasonable timeouts for background tasks to avoid resource starvation.
+  - Allow users or admins to cancel tasks that are taking too long or are no longer needed.
+- **Code:**
+  - Use `asyncio.wait_for` to enforce timeouts on long-running tasks.
+  - Add an API endpoint to cancel a background task by `task_id`.
+
+### 9. **Persistence and Recovery**
+- **Action:**
+  - Ensure that in-progress or pending tasks are persisted to disk/database so they can be recovered after a crash or restart.
+  - On startup, reload and resume any unfinished tasks.
+- **Code:**
+  - On app startup, query the database for tasks with status 'pending' or 'processing' and re-queue them.
+  - Periodically checkpoint task progress for long-running jobs.
+
+### 10. **Observability and Alerting**
+- **Action:**
+  - Add structured logging, metrics, and alerting for task queue health, worker failures, and slow tasks.
+  - Integrate with monitoring tools (e.g., Prometheus, Grafana, Sentry).
+- **Code:**
+  - Emit logs for task submission, start, completion, failure, and cancellation.
+  - Expose Prometheus metrics for queue size, task latency, worker utilization, etc.
+
+### 11. **Testing and Validation**
+- **Action:**
+  - Add unit and integration tests for concurrent task execution, error handling, and recovery.
+  - Simulate high load and failure scenarios to validate robustness.
+- **Code:**
+  - Use pytest-asyncio for async test cases.
+  - Add tests for edge cases: task timeouts, cancellations, database failures, etc.
+
+### 12. **Scalability Considerations**
+- **Action:**
+  - For future scaling, consider moving to a distributed task queue (e.g., Celery, RQ, or a message broker like RabbitMQ/Redis) if a single-process asyncio queue becomes a bottleneck.
+- **Code:**
+  - Abstract the task queue interface to allow swapping implementations in the future.
+
+---
+
+## Example Refactor: Batch Task Processing
+
+**Before (sequential):**
 ```python
-MAX_QUEUE_SIZE = 100  # Set as appropriate
-
-async def submit_task(self, task_type: str, payload: Dict[str, Any]) -> str:
-    if self._queue.qsize() >= MAX_QUEUE_SIZE:
-        raise Exception("Task queue is full, try again later.")
-    # ... existing code ...
+for prompt in prompts:
+    response = await get_completions(prompt, instructions)
+    results.append(response)
 ```
 
-### b. Worker Utilization & Monitoring
-- Log queue length and worker status periodically for monitoring.
-- Optionally, make worker count configurable at runtime.
-
-### c. Result Retention
-- If memory is tight, reduce retention time or store only in DB.
-
----
-
-## 3. Cache Layer
-
-### a. Cache Key Granularity
-- Ensure the cache key includes all relevant parameters (e.g., user_id if responses are user-specific).
-- Use a consistent, canonical form for prompts (e.g., strip whitespace, lowercase if appropriate).
-
-### b. Cache Size & TTL
-- Monitor hit/miss rates and tune `CACHE_MAX_SIZE` and `CACHE_TTL_HOURS` for your workload.
-
-### c. Async Lock Scope
-- Keep lock scope as small as possible to avoid blocking other coroutines.
-
----
-
-## 4. Database Access
-
-### a. Use WAL Mode for SQLite
-- Enable Write-Ahead Logging (WAL) for better concurrency:
-
+**After (concurrent):**
 ```python
-async with aiosqlite.connect(self.db_path) as db:
-    await db.execute("PRAGMA journal_mode=WAL;")
-    # ... existing table creation code ...
+tasks = [get_completions(prompt, instructions) for prompt in prompts]
+results = await asyncio.gather(*tasks)
 ```
 
-### b. Batch Writes (if possible)
-- If you get bursts of requests, consider batching writes (e.g., collect in memory and flush every N seconds or M records).
+---
 
-### c. Indexing
-- Add indexes to columns that are frequently queried (e.g., `user_id`, `created_at`).
+## Example: Adding Task Cancellation Endpoint
+```python
+@router.post("/tasks/{task_id}/cancel")
+async def cancel_task(task_id: str):
+    result = await task_queue.cancel_task(task_id)
+    if result:
+        return {"status": "cancelled"}
+    else:
+        raise HTTPException(status_code=404, detail="Task not found or already completed")
+```
 
 ---
 
-## 5. General Monitoring & Profiling
-
-- Add logging for:
-  - Queue length
-  - Cache hit/miss
-  - DB write latency
-  - Task processing time
-- Expose a `/metrics` endpoint (or use Prometheus middleware) for real-time monitoring.
-
----
-
-## 6. Example: Improve Cache Key
-
-In `HybridCache._generate_key`:
-- Normalize prompt and instructions before hashing (e.g., strip, lower, sort keys if dict).
+## Updated Checklist
+- [ ] Increase `max_workers` for the task queue.
+- [ ] Refactor batch and sub-task processing to use `asyncio.gather` or `asyncio.create_task`.
+- [ ] Ensure endpoints return immediately after scheduling background work.
+- [ ] Profile and offload any blocking code.
+- [ ] Add monitoring/logging for queue and worker stats.
+- [ ] Implement user feedback for long-running tasks.
+- [ ] Add task prioritization and throttling.
+- [ ] Support timeouts and cancellation for tasks.
+- [ ] Ensure persistence and recovery of unfinished tasks.
+- [ ] Add observability and alerting for task queue health.
+- [ ] Add robust testing for concurrency and failure scenarios.
+- [ ] Plan for future scalability (distributed queue).
 
 ---
 
-## 7. Next Steps
-
-- Prioritize and implement the above suggestions based on observed bottlenecks and available resources.
-- Profile endpoints and monitor system resource usage to guide further optimization. 
+## References
+- [FastAPI Background Tasks](https://fastapi.tiangolo.com/tutorial/background-tasks/)
+- [AsyncIO Concurrency Patterns](https://docs.python.org/3/library/asyncio-task.html)
+- [Python Concurrency Best Practices](https://realpython.com/python-concurrency/) 
