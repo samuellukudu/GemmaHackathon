@@ -5,38 +5,64 @@ from typing import Literal, List, Union
 from pydantic import BaseModel, Field, field_validator
 from dotenv import load_dotenv
 import sqlite3
+import uuid
 
 load_dotenv()
 lm = dspy.LM(f"openai/{os.getenv('MODEL')}", api_key=os.getenv("API_KEY"), api_base=os.getenv("BASE_URL"))
 dspy.configure(lm=lm)
 
-# Database setup
 DB_PATH = 'learning.db'
+# if os.path.exists(DB_PATH):
+#     os.remove(DB_PATH)
+
+# Database setup
 conn = sqlite3.connect(DB_PATH)
 c = conn.cursor()
 
-# Create tables if they don't exist
+# Add topics table with UUID as primary key
+c.execute('''CREATE TABLE IF NOT EXISTS topics (
+    id TEXT PRIMARY KEY,
+    name TEXT UNIQUE
+)''')
+conn.commit()
+
+def get_or_create_topic_id(topic_name):
+    c.execute('SELECT id FROM topics WHERE name = ?', (topic_name,))
+    row = c.fetchone()
+    if row:
+        return row[0]
+    topic_id = str(uuid.uuid4())
+    c.execute('INSERT INTO topics (id, name) VALUES (?, ?)', (topic_id, topic_name))
+    conn.commit()
+    return topic_id
+
+# Create tables with UUID-based topic_id as TEXT
 c.execute('''CREATE TABLE IF NOT EXISTS related_questions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    topic TEXT,
+    topic_id TEXT,
     question TEXT,
     category TEXT,
-    focus_area TEXT
+    focus_area TEXT,
+    UNIQUE(topic_id, question),
+    FOREIGN KEY (topic_id) REFERENCES topics(id)
 )''')
 c.execute('''CREATE TABLE IF NOT EXISTS lessons (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    topic TEXT,
+    topic_id TEXT,
     title TEXT,
     overview TEXT,
     key_concepts TEXT,
-    examples TEXT
+    examples TEXT,
+    UNIQUE(topic_id, title),
+    FOREIGN KEY (topic_id) REFERENCES topics(id)
 )''')
 c.execute('''CREATE TABLE IF NOT EXISTS flashcards (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     lesson_id INTEGER,
     term TEXT,
     explanation TEXT,
-    FOREIGN KEY (lesson_id) REFERENCES lessons(id)
+    FOREIGN KEY (lesson_id) REFERENCES lessons(id),
+    UNIQUE(lesson_id, term)
 )''')
 c.execute('''CREATE TABLE IF NOT EXISTS quizzes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -46,37 +72,82 @@ c.execute('''CREATE TABLE IF NOT EXISTS quizzes (
     options TEXT,
     correct_answer TEXT,
     explanation TEXT,
-    FOREIGN KEY (flashcard_set_id) REFERENCES flashcards(id)
+    FOREIGN KEY (flashcard_set_id) REFERENCES flashcards(id),
+    UNIQUE(flashcard_set_id, type, question)
 )''')
 conn.commit()
 
-def store_related_questions(topic, questions):
+def store_related_questions(topic_id, questions):
     for q in questions:
-        c.execute('''INSERT INTO related_questions (topic, question, category, focus_area) VALUES (?, ?, ?, ?)''',
-                  (topic, q.question, q.category, q.focus_area))
+        c.execute('''INSERT OR IGNORE INTO related_questions (topic_id, question, category, focus_area) VALUES (?, ?, ?, ?)''',
+                  (topic_id, q.question, q.category, q.focus_area))
     conn.commit()
 
-def store_lesson(topic, lesson):
-    c.execute('''INSERT INTO lessons (topic, title, overview, key_concepts, examples) VALUES (?, ?, ?, ?, ?)''',
-              (topic, lesson.title, lesson.overview, ','.join(lesson.key_concepts), ','.join(lesson.examples)))
+def upsert_related_question(topic_id, q):
+    c.execute('''
+        INSERT INTO related_questions (topic_id, question, category, focus_area)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(topic_id, question) DO UPDATE SET
+            category=excluded.category,
+            focus_area=excluded.focus_area
+    ''', (topic_id, q.question, q.category, q.focus_area))
     conn.commit()
-    return c.lastrowid
+
+def store_lesson(topic_id, lesson):
+    c.execute('''INSERT OR IGNORE INTO lessons (topic_id, title, overview, key_concepts, examples) VALUES (?, ?, ?, ?, ?)''',
+              (topic_id, lesson.title, lesson.overview, ','.join(lesson.key_concepts), ','.join(lesson.examples)))
+    conn.commit()
+    c.execute('SELECT id FROM lessons WHERE topic_id = ? AND title = ?', (topic_id, lesson.title))
+    return c.fetchone()[0]
+
+def upsert_lesson(topic_id, lesson):
+    c.execute('''
+        INSERT INTO lessons (topic_id, title, overview, key_concepts, examples)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(topic_id, title) DO UPDATE SET
+            overview=excluded.overview,
+            key_concepts=excluded.key_concepts,
+            examples=excluded.examples
+    ''', (topic_id, lesson.title, lesson.overview, ','.join(lesson.key_concepts), ','.join(lesson.examples)))
+    conn.commit()
+    c.execute('SELECT id FROM lessons WHERE topic_id = ? AND title = ?', (topic_id, lesson.title))
+    return c.fetchone()[0]
 
 def store_flashcards(lesson_id, flashcards):
     for card in flashcards:
-        c.execute('''INSERT INTO flashcards (lesson_id, term, explanation) VALUES (?, ?, ?)''',
+        c.execute('''INSERT OR IGNORE INTO flashcards (lesson_id, term, explanation) VALUES (?, ?, ?)''',
                   (lesson_id, card.term, card.explanation))
+    conn.commit()
+
+def upsert_flashcard(lesson_id, card):
+    c.execute('''
+        INSERT INTO flashcards (lesson_id, term, explanation)
+        VALUES (?, ?, ?)
+        ON CONFLICT(lesson_id, term) DO UPDATE SET
+            explanation=excluded.explanation
+    ''', (lesson_id, card.term, card.explanation))
     conn.commit()
 
 def store_quiz(flashcard_set_id, quiz):
     # True/False
     for q in quiz.true_false_questions:
-        c.execute('''INSERT INTO quizzes (flashcard_set_id, type, question, options, correct_answer, explanation) VALUES (?, ?, ?, ?, ?, ?)''',
+        c.execute('''INSERT OR IGNORE INTO quizzes (flashcard_set_id, type, question, options, correct_answer, explanation) VALUES (?, ?, ?, ?, ?, ?)''',
                   (flashcard_set_id, 'true_false', q.question, '', str(q.correct_answer), q.explanation))
     # Multiple Choice
     for q in quiz.multiple_choice_questions:
-        c.execute('''INSERT INTO quizzes (flashcard_set_id, type, question, options, correct_answer, explanation) VALUES (?, ?, ?, ?, ?, ?)''',
+        c.execute('''INSERT OR IGNORE INTO quizzes (flashcard_set_id, type, question, options, correct_answer, explanation) VALUES (?, ?, ?, ?, ?, ?)''',
                   (flashcard_set_id, 'multiple_choice', q.question, ','.join(q.options), str(q.correct_answer), q.explanation))
+    conn.commit()
+
+def upsert_quiz(flashcard_set_id, q, qtype, options, correct_answer, explanation):
+    c.execute('''
+        INSERT INTO quizzes (flashcard_set_id, type, question, options, correct_answer, explanation)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(flashcard_set_id, type, question) DO UPDATE SET
+            options=excluded.options,
+            correct_answer=excluded.correct_answer,
+            explanation=excluded.explanation
+    ''', (flashcard_set_id, qtype, q.question, options, correct_answer, explanation))
     conn.commit()
 
 class RelatedQuestions(BaseModel):
@@ -173,11 +244,12 @@ flashcard_module = dspy.Predict(GenerateFlashcards)
 quiz_module = dspy.Predict(GenerateQuiz)
 
 async def main(topic: str):
+    topic_id = get_or_create_topic_id(topic)
     print("Related Questions:")
     response = await question_module.acall(topic=topic)
     print(response.questions.related_questions)
     # Store related questions
-    store_related_questions(topic, response.questions.related_questions)
+    store_related_questions(topic_id, response.questions.related_questions)
     print("\n")
 
     response = await lesson_module.acall(topic=topic)
@@ -186,7 +258,7 @@ async def main(topic: str):
     # Store lessons and get lesson IDs
     lesson_ids = []
     for lesson in response.lessons.lessons:
-        lesson_id = store_lesson(topic, lesson)
+        lesson_id = store_lesson(topic_id, lesson)
         lesson_ids.append(lesson_id)
     print("\n")
 
