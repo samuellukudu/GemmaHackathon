@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 import sqlite3
 import uuid
 import sys
+import json
 
 load_dotenv()
 lm = dspy.LM(f"openai/{os.getenv('MODEL')}", api_key=os.getenv("API_KEY"), api_base=os.getenv("BASE_URL"))
@@ -191,7 +192,7 @@ class GenerateLessons(dspy.Signature):
     """Generate lessons for a given topic."""
     topic: str = dspy.InputField()
     lessons: List[Lessons] = dspy.OutputField(
-        desc="A list of 3 lessons with concise content"
+        desc="A list of 5 lessons with concise content"
     )
 
 class Card(BaseModel):
@@ -252,6 +253,41 @@ lesson_module = dspy.Predict(GenerateLessons)
 flashcard_module = dspy.Predict(GenerateFlashcards)
 quiz_module = dspy.Predict(GenerateQuiz)
 
+def manual_parse_lessons(raw_response):
+    """Manually parse lessons from LLM response when DSPy parsing fails."""
+    try:
+        # Extract JSON from the response (remove markdown code blocks)
+        if '```json' in raw_response:
+            start = raw_response.find('```json') + 7
+            end = raw_response.find('```', start)
+            json_str = raw_response[start:end].strip()
+        else:
+            # Try to find JSON in the response
+            start = raw_response.find('{')
+            end = raw_response.rfind('}') + 1
+            json_str = raw_response[start:end]
+        
+        # Parse JSON
+        data = json.loads(json_str)
+        
+        # Extract lessons
+        lessons_data = data.get('lessons', [])
+        lessons = []
+        
+        for lesson_data in lessons_data:
+            lesson = Lessons(
+                title=lesson_data['title'],
+                overview=lesson_data['overview'],
+                key_concepts=lesson_data['key_concepts'],
+                examples=lesson_data['examples']
+            )
+            lessons.append(lesson)
+        
+        return lessons
+    except Exception as e:
+        print(f"Manual parsing failed: {e}")
+        return []
+
 async def main(topic: str):
     topic_id = get_or_create_topic_id(topic)
     print("Related Questions:")
@@ -264,27 +300,42 @@ async def main(topic: str):
     print("Lessons:")
     try:
         response = await lesson_module.acall(topic=topic)
-        print(response.lessons)
-        # Store lessons and get lesson IDs
-        lesson_ids = []
-        for lesson in response.lessons:
-            try:
-                lesson_id = store_lesson(topic_id, lesson)
-                lesson_ids.append(lesson_id)
-            except Exception as e:
-                print(f"Error storing lesson: {e}")
-                print(f"Lesson data: {lesson}")
-                sys.exit(1)
+        lessons = response.lessons
+        print(lessons)
     except Exception as e:
-        print(f"Error generating lessons: {e}")
-        print("This might be due to LLM response truncation or parsing issues.")
-        sys.exit(1)
+        print(f"DSPy parsing failed: {e}")
+        print("Attempting manual parsing...")
+        
+        # Get the raw response from the error
+        if hasattr(e, 'lm_response'):
+            raw_response = e.lm_response
+            lessons = manual_parse_lessons(raw_response)
+            if lessons:
+                print(f"Manual parsing successful! Found {len(lessons)} lessons.")
+                print(lessons)
+            else:
+                print("Manual parsing also failed. Exiting.")
+                sys.exit(1)
+        else:
+            print("No raw response available for manual parsing. Exiting.")
+            sys.exit(1)
+    
+    # Store lessons and get lesson IDs
+    lesson_ids = []
+    for lesson in lessons:
+        try:
+            lesson_id = store_lesson(topic_id, lesson)
+            lesson_ids.append(lesson_id)
+        except Exception as e:
+            print(f"Error storing lesson: {e}")
+            print(f"Lesson data: {lesson}")
+            sys.exit(1)
     print("\n")
 
     print("Flashcards:")
     # Generate flashcards for all lessons
     all_flashcards = []
-    for i, lesson in enumerate(response.lessons):
+    for i, lesson in enumerate(lessons):
         print(f"\nGenerating flashcards for lesson {i+1}: {lesson.title}")
         lesson_id = lesson_ids[i]
         flashcard_response = await flashcard_module.acall(topic=lesson)
