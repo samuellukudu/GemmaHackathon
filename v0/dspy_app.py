@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, field_validator
 from dotenv import load_dotenv
 import sqlite3
 import uuid
+import sys
 
 load_dotenv()
 lm = dspy.LM(f"openai/{os.getenv('MODEL')}", api_key=os.getenv("API_KEY"), api_base=os.getenv("BASE_URL"))
@@ -178,11 +179,19 @@ class LessonsSet(BaseModel):
     """Represents a list of lessons."""
     lessons: List[Lessons] = Field(description="A list of lessons")
 
+    @field_validator('lessons', mode='before')
+    @classmethod
+    def unwrap_lessons(cls, v):
+        # Accepts both [{"Lesson": {...}}, ...] and [{"title": ..., "overview": ...}, ...]
+        if v and isinstance(v, list) and isinstance(v[0], dict) and "Lesson" in v[0]:
+            return [item["Lesson"] for item in v]
+        return v
+
 class GenerateLessons(dspy.Signature):
     """Generate lessons for a given topic."""
     topic: str = dspy.InputField()
-    lessons: LessonsSet = dspy.OutputField(
-        desc="A list of 5 lessons"
+    lessons: List[Lessons] = dspy.OutputField(
+        desc="A list of 3 lessons with concise content"
     )
 
 class Card(BaseModel):
@@ -252,20 +261,30 @@ async def main(topic: str):
     store_related_questions(topic_id, response.questions.related_questions)
     print("\n")
 
-    response = await lesson_module.acall(topic=topic)
     print("Lessons:")
-    print(response.lessons.lessons)
-    # Store lessons and get lesson IDs
-    lesson_ids = []
-    for lesson in response.lessons.lessons:
-        lesson_id = store_lesson(topic_id, lesson)
-        lesson_ids.append(lesson_id)
+    try:
+        response = await lesson_module.acall(topic=topic)
+        print(response.lessons)
+        # Store lessons and get lesson IDs
+        lesson_ids = []
+        for lesson in response.lessons:
+            try:
+                lesson_id = store_lesson(topic_id, lesson)
+                lesson_ids.append(lesson_id)
+            except Exception as e:
+                print(f"Error storing lesson: {e}")
+                print(f"Lesson data: {lesson}")
+                sys.exit(1)
+    except Exception as e:
+        print(f"Error generating lessons: {e}")
+        print("This might be due to LLM response truncation or parsing issues.")
+        sys.exit(1)
     print("\n")
 
     print("Flashcards:")
     # Generate flashcards for all lessons
     all_flashcards = []
-    for i, lesson in enumerate(response.lessons.lessons):
+    for i, lesson in enumerate(response.lessons):
         print(f"\nGenerating flashcards for lesson {i+1}: {lesson.title}")
         lesson_id = lesson_ids[i]
         flashcard_response = await flashcard_module.acall(topic=lesson)
@@ -309,4 +328,10 @@ async def main(topic: str):
         if flashcard_set_id is not None:
             store_quiz(flashcard_set_id, quiz)
 
-asyncio.run(main("How do solar panels work?")) 
+if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        topic = " ".join(sys.argv[1:])
+    else:
+        topic = "How do solar panels work?"  # Default topic, change as needed
+        print(f"No topic provided. Using default: '{topic}'\nTo specify a topic, run: python dspy_app.py <your topic>")
+    asyncio.run(main(topic)) 
