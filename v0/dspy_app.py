@@ -191,38 +191,50 @@ async def main(topic: str):
     print("\n")
 
     print("Flashcards:")
-    # Use the third lesson for flashcards (as before)
-    lesson_for_flashcards = response.lessons.lessons[2]
-    lesson_id_for_flashcards = lesson_ids[2]
-    flashcard_response = await flashcard_module.acall(topic=lesson_for_flashcards)
-    flashcards = flashcard_response.flashcards.cards
-    print(flashcards)
-    # Store flashcards and get their DB IDs
-    store_flashcards(lesson_id_for_flashcards, flashcards)
-    # For quiz linkage, get the first flashcard's ID (as a set ID)
-    c.execute('SELECT id FROM flashcards WHERE lesson_id = ? ORDER BY id ASC', (lesson_id_for_flashcards,))
-    flashcard_ids = [row[0] for row in c.fetchall()]
-    flashcard_set_id = flashcard_ids[0] if flashcard_ids else None
+    # Generate flashcards for all lessons
+    all_flashcards = []
+    for i, lesson in enumerate(response.lessons.lessons):
+        print(f"\nGenerating flashcards for lesson {i+1}: {lesson.title}")
+        lesson_id = lesson_ids[i]
+        flashcard_response = await flashcard_module.acall(topic=lesson)
+        flashcards = flashcard_response.flashcards.cards
+        print(f"Generated {len(flashcards)} flashcards")
+        # Store flashcards for this lesson
+        store_flashcards(lesson_id, flashcards)
+        all_flashcards.append((lesson_id, flashcards))
+        print(flashcards)
 
     print("\nQuiz:")
-    quiz_response = await quiz_module.acall(flashcards=flashcard_response.flashcards)
-    quiz = quiz_response.quiz
-    print("True/False Questions:")
-    for i, question in enumerate(quiz.true_false_questions):
-        print(f"Question {i+1}: {question.question}")
-        print(f"Correct Answer: {question.correct_answer}")
-        print(f"Explanation: {question.explanation}")
-        print()
-    print("Multiple Choice Questions:")
-    for i, question in enumerate(quiz.multiple_choice_questions):
-        print(f"Question {i+1}: {question.question}")
-        for j, option in enumerate(question.options):
-            print(f"  {j+1}. {option}")
-        print(f"Correct Answer: {question.correct_answer + 1}")
-        print(f"Explanation: {question.explanation}")
-        print()
-    # Store quiz in DB
-    if flashcard_set_id is not None:
-        store_quiz(flashcard_set_id, quiz)
+    # Generate quiz for each lesson's flashcards
+    for i, (lesson_id, flashcards) in enumerate(all_flashcards):
+        print(f"\nGenerating quiz for lesson {i+1} flashcards:")
+        # Get the first flashcard's ID for quiz linkage
+        c.execute('SELECT id FROM flashcards WHERE lesson_id = ? ORDER BY id ASC', (lesson_id,))
+        flashcard_ids = [row[0] for row in c.fetchall()]
+        flashcard_set_id = flashcard_ids[0] if flashcard_ids else None
+        
+        # Create Flashcards object for quiz generation
+        quiz_flashcards = Flashcards(cards=flashcards)
+        quiz_response = await quiz_module.acall(flashcards=quiz_flashcards)
+        quiz = quiz_response.quiz
+        
+        print("True/False Questions:")
+        for j, question in enumerate(quiz.true_false_questions):
+            print(f"Question {j+1}: {question.question}")
+            print(f"Correct Answer: {question.correct_answer}")
+            print(f"Explanation: {question.explanation}")
+            print()
+        print("Multiple Choice Questions:")
+        for j, question in enumerate(quiz.multiple_choice_questions):
+            print(f"Question {j+1}: {question.question}")
+            for k, option in enumerate(question.options):
+                print(f"  {k+1}. {option}")
+            print(f"Correct Answer: {question.correct_answer + 1}")
+            print(f"Explanation: {question.explanation}")
+            print()
+        
+        # Store quiz in DB
+        if flashcard_set_id is not None:
+            store_quiz(flashcard_set_id, quiz)
 
 asyncio.run(main("How do solar panels work?")) 
