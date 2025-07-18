@@ -4,10 +4,80 @@ import dspy
 from typing import Literal, List, Union
 from pydantic import BaseModel, Field, field_validator
 from dotenv import load_dotenv
+import sqlite3
 
 load_dotenv()
 lm = dspy.LM(f"openai/{os.getenv('MODEL')}", api_key=os.getenv("API_KEY"), api_base=os.getenv("BASE_URL"))
 dspy.configure(lm=lm)
+
+# Database setup
+DB_PATH = 'learning.db'
+conn = sqlite3.connect(DB_PATH)
+c = conn.cursor()
+
+# Create tables if they don't exist
+c.execute('''CREATE TABLE IF NOT EXISTS related_questions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    topic TEXT,
+    question TEXT,
+    category TEXT,
+    focus_area TEXT
+)''')
+c.execute('''CREATE TABLE IF NOT EXISTS lessons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    topic TEXT,
+    title TEXT,
+    overview TEXT,
+    key_concepts TEXT,
+    examples TEXT
+)''')
+c.execute('''CREATE TABLE IF NOT EXISTS flashcards (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lesson_id INTEGER,
+    term TEXT,
+    explanation TEXT,
+    FOREIGN KEY (lesson_id) REFERENCES lessons(id)
+)''')
+c.execute('''CREATE TABLE IF NOT EXISTS quizzes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    flashcard_set_id INTEGER,
+    type TEXT,
+    question TEXT,
+    options TEXT,
+    correct_answer TEXT,
+    explanation TEXT,
+    FOREIGN KEY (flashcard_set_id) REFERENCES flashcards(id)
+)''')
+conn.commit()
+
+def store_related_questions(topic, questions):
+    for q in questions:
+        c.execute('''INSERT INTO related_questions (topic, question, category, focus_area) VALUES (?, ?, ?, ?)''',
+                  (topic, q.question, q.category, q.focus_area))
+    conn.commit()
+
+def store_lesson(topic, lesson):
+    c.execute('''INSERT INTO lessons (topic, title, overview, key_concepts, examples) VALUES (?, ?, ?, ?, ?)''',
+              (topic, lesson.title, lesson.overview, ','.join(lesson.key_concepts), ','.join(lesson.examples)))
+    conn.commit()
+    return c.lastrowid
+
+def store_flashcards(lesson_id, flashcards):
+    for card in flashcards:
+        c.execute('''INSERT INTO flashcards (lesson_id, term, explanation) VALUES (?, ?, ?)''',
+                  (lesson_id, card.term, card.explanation))
+    conn.commit()
+
+def store_quiz(flashcard_set_id, quiz):
+    # True/False
+    for q in quiz.true_false_questions:
+        c.execute('''INSERT INTO quizzes (flashcard_set_id, type, question, options, correct_answer, explanation) VALUES (?, ?, ?, ?, ?, ?)''',
+                  (flashcard_set_id, 'true_false', q.question, '', str(q.correct_answer), q.explanation))
+    # Multiple Choice
+    for q in quiz.multiple_choice_questions:
+        c.execute('''INSERT INTO quizzes (flashcard_set_id, type, question, options, correct_answer, explanation) VALUES (?, ?, ?, ?, ?, ?)''',
+                  (flashcard_set_id, 'multiple_choice', q.question, ','.join(q.options), str(q.correct_answer), q.explanation))
+    conn.commit()
 
 class RelatedQuestions(BaseModel):
     """Represents a single generated question."""
@@ -106,36 +176,53 @@ async def main(topic: str):
     print("Related Questions:")
     response = await question_module.acall(topic=topic)
     print(response.questions.related_questions)
+    # Store related questions
+    store_related_questions(topic, response.questions.related_questions)
     print("\n")
+
     response = await lesson_module.acall(topic=topic)
     print("Lessons:")
     print(response.lessons.lessons)
+    # Store lessons and get lesson IDs
+    lesson_ids = []
+    for lesson in response.lessons.lessons:
+        lesson_id = store_lesson(topic, lesson)
+        lesson_ids.append(lesson_id)
     print("\n")
+
     print("Flashcards:")
-    response = await flashcard_module.acall(topic=response.lessons.lessons[2])
-    print(response.flashcards.cards)
-    # for i, card in enumerate(response.flashcards.cards):
-    #     print(f"Card {i+1}:")
-    #     print(f"Term: {card.term}")
-    #     print(f"Explanation: {card.explanation}")
-    #     print("\n")
-    
+    # Use the third lesson for flashcards (as before)
+    lesson_for_flashcards = response.lessons.lessons[2]
+    lesson_id_for_flashcards = lesson_ids[2]
+    flashcard_response = await flashcard_module.acall(topic=lesson_for_flashcards)
+    flashcards = flashcard_response.flashcards.cards
+    print(flashcards)
+    # Store flashcards and get their DB IDs
+    store_flashcards(lesson_id_for_flashcards, flashcards)
+    # For quiz linkage, get the first flashcard's ID (as a set ID)
+    c.execute('SELECT id FROM flashcards WHERE lesson_id = ? ORDER BY id ASC', (lesson_id_for_flashcards,))
+    flashcard_ids = [row[0] for row in c.fetchall()]
+    flashcard_set_id = flashcard_ids[0] if flashcard_ids else None
+
     print("\nQuiz:")
-    quiz_response = await quiz_module.acall(flashcards=response.flashcards)
+    quiz_response = await quiz_module.acall(flashcards=flashcard_response.flashcards)
+    quiz = quiz_response.quiz
     print("True/False Questions:")
-    for i, question in enumerate(quiz_response.quiz.true_false_questions):
+    for i, question in enumerate(quiz.true_false_questions):
         print(f"Question {i+1}: {question.question}")
         print(f"Correct Answer: {question.correct_answer}")
         print(f"Explanation: {question.explanation}")
         print()
-    
     print("Multiple Choice Questions:")
-    for i, question in enumerate(quiz_response.quiz.multiple_choice_questions):
+    for i, question in enumerate(quiz.multiple_choice_questions):
         print(f"Question {i+1}: {question.question}")
         for j, option in enumerate(question.options):
             print(f"  {j+1}. {option}")
         print(f"Correct Answer: {question.correct_answer + 1}")
         print(f"Explanation: {question.explanation}")
         print()
+    # Store quiz in DB
+    if flashcard_set_id is not None:
+        store_quiz(flashcard_set_id, quiz)
 
 asyncio.run(main("How do solar panels work?")) 
