@@ -67,11 +67,7 @@ class TaskQueue:
                 
                 # Process the task
                 try:
-                    if task_type == 'completion':
-                        result = await self._process_completion_task(payload)
-                    elif task_type == 'batch_completion':
-                        result = await self._process_batch_completion_task(payload)
-                    elif task_type == 'query_related_questions':
+                    if task_type == 'query_related_questions':
                         result = await self._process_query_related_questions_task(payload)
                     elif task_type == 'query_lessons':
                         result = await self._process_query_lessons_task(payload)
@@ -96,71 +92,7 @@ class TaskQueue:
                 print(f"Worker {worker_name} error: {e}")
                 continue
     
-    @profile_task("task_queue.process_completion")
-    async def _process_completion_task(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Process a single completion task"""
-        start_time = time.time()
-        
-        prompt = payload['prompt']
-        instructions = payload.get('instructions')
-        
-        # Generate completion
-        response = await get_completions(prompt, instructions)
-        
-        processing_time = time.time() - start_time
-        
-        # Save to history
-        await db.save_request_history(
-            prompt=str(prompt),
-            response=response,
-            instructions=instructions,
-            processing_time=processing_time,
-            user_id=payload.get('user_id')
-        )
-        
-        return {
-            'response': response,
-            'processing_time': processing_time,
-            'success': True
-        }
-    
-    @profile_task("task_queue.process_batch_completion")
-    async def _process_batch_completion_task(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Process a batch of completion tasks concurrently"""
-        start_time = time.time()
-        prompts = payload['prompts']
-        instructions = payload.get('instructions')
-        
-        async def process_single_prompt(prompt):
-            """Process a single prompt and return result with error handling"""
-            try:
-                response = await get_completions(prompt, instructions)
-                return {
-                    'prompt': prompt,
-                    'response': response,
-                    'success': True
-                }
-            except Exception as e:
-                return {
-                    'prompt': prompt,
-                    'error': str(e),
-                    'success': False
-                }
-        
-        # Process all prompts concurrently using asyncio.gather
-        results = await asyncio.gather(
-            *[process_single_prompt(prompt) for prompt in prompts],
-            return_exceptions=False  # Let individual errors be handled in process_single_prompt
-        )
-        
-        processing_time = time.time() - start_time
-        
-        return {
-            'results': results,
-            'total_processing_time': processing_time,
-            'success_count': sum(1 for r in results if r['success']),
-            'error_count': sum(1 for r in results if not r['success'])
-        }
+
     
     async def _cleanup_old_tasks(self):
         """Clean up old completed tasks from memory and log performance metrics"""
@@ -321,11 +253,9 @@ class TaskQueue:
                 user_id=user_id
             )
             await db.save_related_questions_history(
-                user_id=user_id,
-                query=query,
+                query_id=query_id,
                 questions_json=json.dumps(related_questions),
-                processing_time=processing_time,
-                query_id=query_id
+                processing_time=processing_time
             )
             
             return {
@@ -392,16 +322,14 @@ class TaskQueue:
                 user_id=user_id
             )
             await db.save_lessons_history(
-                user_id=user_id,
-                query=query,
+                query_id=query_id,
                 lessons_json=json.dumps(lessons),
-                processing_time=processing_time,
-                query_id=query_id
+                processing_time=processing_time
             )
             
             # Schedule flashcard generation in background (non-blocking)
             if lessons:
-                async def generate_flashcards_for_lesson(lesson):
+                async def generate_flashcards_for_lesson(lesson, lesson_index):
                     try:
                         flashcard_instructions = get_instruction("flashcards")
                         lesson_prompt = json.dumps(lesson)
@@ -410,16 +338,16 @@ class TaskQueue:
                         flashcards = flashcard_parsed.get("flashcards", [])
                         
                         await db.save_flashcards_history(
-                            user_id=user_id,
+                            query_id=query_id,
+                            lesson_index=lesson_index,
                             lesson_json=lesson_prompt,
                             flashcards_json=json.dumps(flashcards),
-                            processing_time=None,
-                            query_id=query_id
+                            processing_time=None
                         )
                     except Exception as e:
-                        print(f"Error generating flashcards for lesson: {e}")
+                        print(f"Error generating flashcards for lesson {lesson_index}: {e}")
                 
-                flashcard_tasks = [generate_flashcards_for_lesson(lesson) for lesson in lessons]
+                flashcard_tasks = [generate_flashcards_for_lesson(lesson, index) for index, lesson in enumerate(lessons)]
                 asyncio.create_task(asyncio.gather(*flashcard_tasks, return_exceptions=True))
             
             return {
