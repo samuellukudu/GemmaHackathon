@@ -314,16 +314,16 @@ class Database:
                 row = await cursor.fetchone()
                 return dict(row) if row else None
 
-    async def get_flashcards_by_query_id(self, query_id: str) -> Optional[Dict]:
-        """Get flashcards by query_id"""
+    async def get_flashcards_by_query_id(self, query_id: str) -> List[Dict]:
+        """Get all flashcards for a given query_id"""
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                "SELECT * FROM flashcards_history WHERE query_id = ?",
+                "SELECT * FROM flashcards_history WHERE query_id = ? ORDER BY lesson_index ASC",
                 (query_id,)
             ) as cursor:
-                row = await cursor.fetchone()
-                return dict(row) if row else None
+                rows = await cursor.fetchall()
+                return [dict(row) for row in rows]
 
     async def get_flashcards_by_query_id_and_lesson_index(self, query_id: str, lesson_index: int) -> Optional[Dict]:
         """Get flashcards by query_id and lesson_index"""

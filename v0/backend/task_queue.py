@@ -331,24 +331,35 @@ class TaskQueue:
             if lessons:
                 async def generate_flashcards_for_lesson(lesson, lesson_index):
                     try:
+                        start_time_fc = time.time()
                         flashcard_instructions = get_instruction("flashcards")
-                        lesson_prompt = json.dumps(lesson)
+                        
+                        # Use lesson content for flashcard generation
+                        lesson_content_for_prompt = {
+                            "title": lesson.get("title"),
+                            "overview": lesson.get("overview"),
+                            "key_concepts": lesson.get("key_concepts")
+                        }
+                        lesson_prompt = json.dumps(lesson_content_for_prompt)
+                        
                         flashcard_response = await get_completions(lesson_prompt, flashcard_instructions)
                         flashcard_parsed = json.loads(flashcard_response)
                         flashcards = flashcard_parsed.get("flashcards", [])
                         
+                        processing_time_fc = time.time() - start_time_fc
+                        
                         await db.save_flashcards_history(
                             query_id=query_id,
                             lesson_index=lesson_index,
-                            lesson_json=lesson_prompt,
+                            lesson_json=json.dumps(lesson), # Save the full lesson
                             flashcards_json=json.dumps(flashcards),
-                            processing_time=None
+                            processing_time=processing_time_fc
                         )
                     except Exception as e:
                         print(f"Error generating flashcards for lesson {lesson_index}: {e}")
                 
                 flashcard_tasks = [generate_flashcards_for_lesson(lesson, index) for index, lesson in enumerate(lessons)]
-                asyncio.create_task(asyncio.gather(*flashcard_tasks, return_exceptions=True))
+                await asyncio.gather(*flashcard_tasks, return_exceptions=True)
             
             return {
                 'lessons': lessons,

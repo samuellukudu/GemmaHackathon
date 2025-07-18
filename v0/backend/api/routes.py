@@ -189,17 +189,29 @@ async def get_related_questions_by_query_id(query_id: str):
 
 @router.get("/flashcards/{query_id}", response_model=ContentResponse)
 async def get_flashcards_by_query_id(query_id: str):
-    """Get flashcards by query_id"""
+    """Get all flashcards for a given query_id, aggregating from all lessons."""
     try:
         flashcards_data = await db.get_flashcards_by_query_id(query_id)
         if not flashcards_data:
             raise HTTPException(status_code=404, detail="Flashcards not found")
         
+        # Aggregate flashcards from all lessons
+        all_flashcards = []
+        total_processing_time = 0
+        created_at = None
+        
+        for record in flashcards_data:
+            all_flashcards.extend(json.loads(record["flashcards_json"]))
+            if record["processing_time"]:
+                total_processing_time += record["processing_time"]
+            if not created_at:
+                created_at = record["created_at"]
+
         return ContentResponse(
             query_id=query_id,
-            content=json.loads(flashcards_data["flashcards_json"]),
-            created_at=flashcards_data["created_at"],
-            processing_time=flashcards_data["processing_time"]
+            content=all_flashcards,
+            created_at=created_at or datetime.now().isoformat(),
+            processing_time=total_processing_time
         )
     except HTTPException:
         raise
