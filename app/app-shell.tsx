@@ -1,10 +1,11 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useCallback } from "react"
 import { HomePage, LibraryPage, ExplorePage, LessonsPage } from "./page"
 import ExplanationPage from "./explanation/page"
 import FlashcardsPage from "./flashcards/page"
 import QuizPage from "./quiz/page"
+import { useLessonProgress } from "@/hooks/use-lesson-progress"
 
 type AppState = "home" | "library" | "explore" | "lessons" | "explanation" | "flashcards" | "quiz"
 
@@ -12,14 +13,29 @@ export default function AppShell() {
   const [currentState, setCurrentState] = useState<AppState>("home")
   const [currentTopic, setCurrentTopic] = useState("")
   const [currentExplanation, setCurrentExplanation] = useState(null)
-  const [currentFlashcards, setCurrentFlashcards] = useState([])
+  const [currentFlashcards, setCurrentFlashcards] = useState<any[]>([])
   const [currentStepIndex, setCurrentStepIndex] = useState(0)
+  const [isUserQuery, setIsUserQuery] = useState(true) // Track if current topic is a user query
+  const { getLastAccessedLesson, lessonProgressList } = useLessonProgress()
 
-  const handleStartExploration = (topic: string, category?: string) => {
+  const handleStartExploration = useCallback(async (topic: string, category?: string, fromLessonContinue: boolean = false) => {
     setCurrentTopic(topic)
-    setCurrentStepIndex(0) // Reset to first step
+    
+    // Check if we have existing progress for this topic
+    const existingLesson = lessonProgressList.find(lesson => lesson.topic === topic)
+    if (existingLesson) {
+      // Continue from where user left off
+      const lastAccessedLesson = await getLastAccessedLesson(existingLesson.queryId)
+      setCurrentStepIndex(lastAccessedLesson)
+      setIsUserQuery(true) // Existing lessons are always user queries
+    } else {
+      // Start from beginning for new topics
+      setCurrentStepIndex(0)
+      setIsUserQuery(!fromLessonContinue) // New topics are user queries unless continuing from lesson navigation
+    }
+    
     setCurrentState("explanation")
-  }
+  }, [getLastAccessedLesson, lessonProgressList])
 
   const handleShowLibrary = () => {
     setCurrentState("library")
@@ -117,6 +133,7 @@ export default function AppShell() {
         <ExplanationPage
           topic={currentTopic}
           currentStepIndex={currentStepIndex}
+          isUserQuery={isUserQuery}
           onBack={handleBackToHome}
           onGenerateFlashcards={handleGenerateFlashcards}
           onShowLibrary={handleShowLibraryFromStudy}

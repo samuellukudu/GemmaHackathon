@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
+import { Badge } from "@/components/ui/badge"
 import {
   BookOpen,
   Bell,
@@ -21,6 +22,9 @@ import {
 } from "lucide-react"
 import AppShell from "./app-shell"
 import { offlineManager } from "@/lib/offline-manager"
+import { useRelatedQuestions, useRecentRelatedQuestions } from "@/hooks/use-related-questions"
+import { useLessonProgress } from "@/hooks/use-lesson-progress"
+import { useLibraryStats } from "@/hooks/use-library-stats"
 
 const categories = [
   {
@@ -181,9 +185,9 @@ export function HomePage({ onStartExploration, onShowLibrary, onShowExplore, onS
             {/* Connection Status */}
             <div className="flex items-center gap-2">
               {isOnline ? (
-                <Wifi className="h-4 w-4 text-green-500" title="Online" />
+                <Wifi className="h-4 w-4 text-green-500" />
               ) : (
-                <WifiOff className="h-4 w-4 text-orange-500" title="Offline - Data saved locally" />
+                <WifiOff className="h-4 w-4 text-orange-500" />
               )}
             </div>
             <Button variant="ghost" size="sm" className="p-2">
@@ -343,20 +347,11 @@ export function LessonsPage({
   onShowExplore: () => void
   onShowLibrary: () => void
 }) {
-  const [recentTopics, setRecentTopics] = useState<string[]>([])
-
-  useEffect(() => {
-    loadRecentTopics()
-  }, [])
-
-  const loadRecentTopics = async () => {
-    const topics = await offlineManager.getRecentTopics()
-    setRecentTopics(topics)
-  }
+  const { lessonProgressList, clearAllProgress, refreshProgress, cleanupDuplicates } = useLessonProgress()
 
   const clearHistory = async () => {
-    await offlineManager.clearAllData()
-    setRecentTopics([])
+    await clearAllProgress()
+    await offlineManager.clearAllData() // Also clear old data
   }
 
   return (
@@ -409,47 +404,67 @@ export function LessonsPage({
         <div className="mb-12">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-2xl font-semibold text-gray-900">Continue Learning</h2>
-            {recentTopics.length > 0 && (
+            {lessonProgressList.length > 0 && (
               <Button variant="outline" onClick={clearHistory} className="text-sm bg-transparent">
                 Clear All Lessons
               </Button>
             )}
           </div>
 
-          {recentTopics.length > 0 ? (
+          {lessonProgressList.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {recentTopics.map((topic, index) => {
-                const completedSteps = JSON.parse(localStorage.getItem(`completedSteps_${topic}`) || "[]")
-                const progress = (completedSteps.length / 5) * 100 // Assuming 5 steps per topic
-
-                return (
-                  <Card
-                    key={index}
-                    className="hover:shadow-md transition-shadow cursor-pointer"
-                    onClick={() => onStartExploration(topic)}
-                  >
-                    <CardContent className="p-6">
-                      <h3 className="font-medium text-gray-900 mb-3">{topic}</h3>
-                      <div className="space-y-3">
-                        <div className="flex justify-between text-sm text-gray-600">
+              {lessonProgressList.map((lessonInfo, index) => (
+                <Card key={index} className="hover:shadow-md transition-shadow">
+                  <CardContent className="p-6">
+                    <div className="flex items-start justify-between mb-4">
+                      <h3 className="font-medium text-gray-900 flex-1 pr-2">{lessonInfo.topic}</h3>
+                      {lessonInfo.progress === 100 && (
+                        <div className="flex items-center gap-1 text-green-600">
+                          <Trophy className="h-4 w-4" />
+                          <span className="text-xs font-medium">Complete</span>
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="space-y-4">
+                      {/* Progress Section */}
+                      <div>
+                        <div className="flex justify-between text-sm text-gray-600 mb-2">
                           <span>Progress</span>
-                          <span>{completedSteps.length}/5 steps</span>
+                          <span className="font-medium">{lessonInfo.completedLessons}/{lessonInfo.totalLessons} steps</span>
                         </div>
-                        <Progress value={progress} className="h-2" />
-                        <div className="flex items-center justify-between">
-                          <p className="text-sm text-gray-500">Click to continue</p>
-                          {progress === 100 && (
-                            <div className="flex items-center gap-1 text-green-600">
-                              <Trophy className="h-4 w-4" />
-                              <span className="text-xs font-medium">Complete</span>
-                            </div>
-                          )}
-                        </div>
+                        <Progress value={lessonInfo.progress} className="h-2" />
                       </div>
-                    </CardContent>
-                  </Card>
-                )
-              })}
+                      
+                      {/* Status and Continue Button */}
+                      <div className="flex items-center justify-between">
+                        <div className="flex flex-col">
+                          <p className="text-sm text-gray-500">
+                            {lessonInfo.progress === 100 
+                              ? 'All steps completed' 
+                              : lessonInfo.lastAccessedLesson < lessonInfo.totalLessons 
+                                ? `Next: Step ${lessonInfo.lastAccessedLesson + 1}`
+                                : 'Ready to start'
+                            }
+                          </p>
+                          <p className="text-xs text-gray-400 mt-1">
+                            Last accessed: {new Date(lessonInfo.createdAt).toLocaleDateString()}
+                          </p>
+                        </div>
+                        
+                        <Button
+                          onClick={() => onStartExploration(lessonInfo.topic)}
+                          size="sm"
+                          className="ml-4"
+                          variant={lessonInfo.progress === 100 ? "outline" : "default"}
+                        >
+                          {lessonInfo.progress === 100 ? 'Review' : 'Continue'}
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
           ) : (
             <div className="text-center py-16">
@@ -474,7 +489,7 @@ export function LessonsPage({
         </div>
 
         {/* Quick Stats */}
-        {recentTopics.length > 0 && (
+        {lessonProgressList.length > 0 && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -485,28 +500,18 @@ export function LessonsPage({
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="text-center">
-                  <div className="text-2xl font-bold text-blue-600 mb-1">{recentTopics.length}</div>
-                  <p className="text-sm text-gray-600">Total Lessons</p>
+                  <div className="text-2xl font-bold text-blue-600 mb-1">{lessonProgressList.length}</div>
+                  <p className="text-sm text-gray-600">Total Topics</p>
                 </div>
                 <div className="text-center">
                   <div className="text-2xl font-bold text-green-600 mb-1">
-                    {
-                      recentTopics.filter((topic) => {
-                        const completedSteps = JSON.parse(localStorage.getItem(`completedSteps_${topic}`) || "[]")
-                        return completedSteps.length === 5
-                      }).length
-                    }
+                    {lessonProgressList.filter(lesson => lesson.progress === 100).length}
                   </div>
                   <p className="text-sm text-gray-600">Completed</p>
                 </div>
                 <div className="text-center">
                   <div className="text-2xl font-bold text-orange-600 mb-1">
-                    {
-                      recentTopics.filter((topic) => {
-                        const completedSteps = JSON.parse(localStorage.getItem(`completedSteps_${topic}`) || "[]")
-                        return completedSteps.length > 0 && completedSteps.length < 5
-                      }).length
-                    }
+                    {lessonProgressList.filter(lesson => lesson.progress > 0 && lesson.progress < 100).length}
                   </div>
                   <p className="text-sm text-gray-600">In Progress</p>
                 </div>
@@ -530,31 +535,7 @@ export function LibraryPage({
   onShowExplore: () => void
   onShowLessons: () => void
 }) {
-  const [userStats, setUserStats] = useState<UserStats>({
-    totalTopicsExplored: 0,
-    totalStepsCompleted: 0,
-    totalQuizzesTaken: 0,
-    averageQuizScore: 0,
-    totalStudyTime: 0,
-    streak: 0,
-    lastStudyDate: "",
-  })
-
-  useEffect(() => {
-    loadUserStats()
-  }, [])
-
-  const loadUserStats = async () => {
-    const stats = await offlineManager.getUserStats()
-    setUserStats(stats)
-  }
-
-  const formatStudyTime = (minutes: number): string => {
-    if (minutes < 60) return `${minutes}m`
-    const hours = Math.floor(minutes / 60)
-    const remainingMinutes = minutes % 60
-    return `${hours}h ${remainingMinutes}m`
-  }
+  const { stats: userStats, loading, formatStudyTime } = useLibraryStats()
 
   return (
     <div className="min-h-screen bg-white">
@@ -599,6 +580,15 @@ export function LibraryPage({
           <h1 className="text-4xl font-bold text-gray-900 mb-4">My Library</h1>
           <p className="text-lg text-gray-600 max-w-2xl mx-auto">Your learning progress and achievements</p>
         </div>
+
+        {loading ? (
+          <div className="text-center py-16">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-gray-600">Loading your stats...</p>
+          </div>
+        ) : (
+          <>
+        
 
         {/* Stats Overview */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
@@ -705,6 +695,37 @@ export function LibraryPage({
           </CardContent>
         </Card>
 
+        {/* Recent Quiz Results */}
+        {userStats.recentQuizResults && userStats.recentQuizResults.length > 0 && (
+          <Card className="mb-12">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Target className="h-5 w-5" />
+                Recent Quiz Results
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {userStats.recentQuizResults.map((result, index) => (
+                  <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div>
+                      <p className="font-medium text-sm">{result.topic}</p>
+                      <p className="text-xs text-gray-500">{result.date}</p>
+                    </div>
+                    <div className={`px-2 py-1 rounded text-sm font-medium ${
+                      result.score >= 80 ? 'bg-green-100 text-green-800' :
+                      result.score >= 60 ? 'bg-yellow-100 text-yellow-800' :
+                      'bg-red-100 text-red-800'
+                    }`}>
+                      {result.score}%
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Achievements Section */}
         <Card>
           <CardHeader>
@@ -753,6 +774,8 @@ export function LibraryPage({
             </div>
           </CardContent>
         </Card>
+        </>
+        )}
       </div>
     </div>
   )
@@ -769,149 +792,25 @@ export function ExplorePage({
   onShowLibrary: () => void
   onShowLessons: () => void
 }) {
-  const [recentTopics, setRecentTopics] = useState<string[]>([])
-  const [recommendations, setRecommendations] = useState<string[]>([])
+  const [selectedQueryId, setSelectedQueryId] = useState<string | null>(null)
+  const { state: relatedQuestionsState, fetchRelatedQuestions, clearError } = useRelatedQuestions()
+  const { recentQuestions, fetchRecentQuestions } = useRecentRelatedQuestions()
 
   useEffect(() => {
-    loadRecentTopics()
+    fetchRecentQuestions(10) // Load recent questions from API
   }, [])
 
-  const loadRecentTopics = async () => {
-    const topics = await offlineManager.getRecentTopics()
-    setRecentTopics(topics)
-    generateRecommendations(topics)
+  const handleTestRelatedQuestions = async () => {
+    // Test with the query ID from your example
+    const testQueryId = "b61c880c-817c-4345-8384-96e6993ab8ab"
+    setSelectedQueryId(testQueryId)
+    await fetchRelatedQuestions(testQueryId)
   }
 
-  const generateRecommendations = (topics: string[]) => {
-    const allRecommendations: string[] = []
+  // Note: Removed automatic loading of related questions to prevent 404 errors
+  // Users can manually load related questions using the "Load Related Questions" button
 
-    // Generate recommendations based on learned topics
-    topics.forEach((topic) => {
-      const lowerTopic = topic.toLowerCase()
 
-      // Technology recommendations
-      if (lowerTopic.includes("smartphone") || lowerTopic.includes("phone") || lowerTopic.includes("mobile")) {
-        allRecommendations.push(
-          "How do touchscreens work?",
-          "How does wireless charging work?",
-          "How do phone cameras work?",
-          "How does Bluetooth work?",
-          "How do phone batteries work?",
-          "How does face recognition work?",
-        )
-      } else if (lowerTopic.includes("internet") || lowerTopic.includes("wifi") || lowerTopic.includes("network")) {
-        allRecommendations.push(
-          "How does cloud storage work?",
-          "How do routers work?",
-          "How does email work?",
-          "How do websites load?",
-          "How does streaming work?",
-          "How does cybersecurity work?",
-        )
-      } else if (lowerTopic.includes("electric") || lowerTopic.includes("car") || lowerTopic.includes("vehicle")) {
-        allRecommendations.push(
-          "How do hybrid cars work?",
-          "How does regenerative braking work?",
-          "How do car engines work?",
-          "How does cruise control work?",
-          "How do airbags work?",
-          "How does anti-lock braking work?",
-        )
-      } else if (lowerTopic.includes("solar") || lowerTopic.includes("energy") || lowerTopic.includes("power")) {
-        allRecommendations.push(
-          "How do wind turbines work?",
-          "How do batteries store energy?",
-          "How does hydroelectric power work?",
-          "How do electric grids work?",
-          "How do nuclear reactors work?",
-          "How do fuel cells work?",
-        )
-      }
-
-      // Nature & Science recommendations
-      if (lowerTopic.includes("plant") || lowerTopic.includes("photosynthesis") || lowerTopic.includes("oxygen")) {
-        allRecommendations.push(
-          "How do trees grow so tall?",
-          "How do flowers bloom?",
-          "How do seeds germinate?",
-          "How do leaves change color?",
-          "How do plants communicate?",
-          "How do carnivorous plants work?",
-        )
-      } else if (
-        lowerTopic.includes("earthquake") ||
-        lowerTopic.includes("volcano") ||
-        lowerTopic.includes("geological")
-      ) {
-        allRecommendations.push(
-          "How do mountains form?",
-          "How do tsunamis work?",
-          "How are fossils formed?",
-          "How do geysers work?",
-          "How do caves form?",
-          "How do crystals grow?",
-        )
-      } else if (lowerTopic.includes("weather") || lowerTopic.includes("hurricane") || lowerTopic.includes("storm")) {
-        allRecommendations.push(
-          "How do tornadoes form?",
-          "How does lightning work?",
-          "How do clouds form?",
-          "How does rain happen?",
-          "How do rainbows form?",
-          "How do seasons change?",
-        )
-      }
-
-      // Food & Cooking recommendations
-      if (lowerTopic.includes("bread") || lowerTopic.includes("baking") || lowerTopic.includes("yeast")) {
-        allRecommendations.push(
-          "How does sourdough starter work?",
-          "How do cakes rise?",
-          "How does gluten work?",
-          "How does pizza dough work?",
-          "How do cookies spread?",
-          "How does pastry work?",
-        )
-      } else if (lowerTopic.includes("fermentation") || lowerTopic.includes("cheese") || lowerTopic.includes("wine")) {
-        allRecommendations.push(
-          "How is yogurt made?",
-          "How is beer brewed?",
-          "How is vinegar made?",
-          "How is kimchi fermented?",
-          "How is chocolate made?",
-          "How is coffee roasted?",
-        )
-      }
-
-      // Manufacturing recommendations
-      if (lowerTopic.includes("manufacturing") || lowerTopic.includes("factory") || lowerTopic.includes("production")) {
-        allRecommendations.push(
-          "How are smartphones assembled?",
-          "How are clothes made?",
-          "How are books printed?",
-          "How are bottles made?",
-          "How are circuits printed?",
-          "How are metals forged?",
-        )
-      }
-    })
-
-    // Add general recommendations if no specific matches or to fill out the list
-    if (allRecommendations.length === 0 && topics.length > 0) {
-      allRecommendations.push(
-        "How do magnets work?",
-        "How does gravity work?",
-        "How do vaccines work?",
-        "How does memory work?",
-        "How do dreams work?",
-        "How does music work?",
-      )
-    }
-
-    // Remove duplicates and limit to reasonable number
-    const uniqueRecommendations = [...new Set(allRecommendations)]
-    setRecommendations(uniqueRecommendations.slice(0, 12))
-  }
 
   return (
     <div className="min-h-screen bg-white">
@@ -959,72 +858,95 @@ export function ExplorePage({
           </p>
         </div>
 
-        {recentTopics.length === 0 ? (
-          <div className="text-center py-12">
-            <div className="text-gray-400 mb-4">
-              <BookOpen className="h-16 w-16 mx-auto mb-4" />
-            </div>
-            <h3 className="text-xl font-medium text-gray-900 mb-2">Start learning to see recommendations</h3>
-            <p className="text-gray-600 mb-6">
-              Once you explore some topics, we'll suggest related subjects you might find interesting
-            </p>
-            <Button onClick={onBack} className="bg-blue-500 hover:bg-blue-600 text-white">
-              Start Learning
+        {/* AI-Generated Related Questions Section */}
+        <div>
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-2xl font-semibold text-gray-900">AI-Generated Related Questions</h2>
+            <Button onClick={handleTestRelatedQuestions} variant="outline" className="bg-transparent">
+              Load Related Questions
             </Button>
           </div>
-        ) : (
-          <div className="space-y-8">
-            {recommendations.length > 0 && (
-              <div>
-                <h2 className="text-2xl font-semibold text-gray-900 mb-6">Recommended for You</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-                  {recommendations.map((topic, index) => (
-                    <Card
-                      key={index}
-                      className="hover:shadow-md transition-shadow cursor-pointer group"
-                      onClick={() => onStartExploration(topic)}
-                    >
-                      <CardContent className="p-6">
-                        <h3 className="font-medium text-gray-900 mb-2 group-hover:text-blue-600 transition-colors">
-                          {topic}
-                        </h3>
-                        <p className="text-sm text-gray-500">Click to start learning about this topic</p>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* General Suggestions */}
-            <div>
-              <h2 className="text-2xl font-semibold text-gray-900 mb-6">Popular Topics to Explore</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {[
-                  "How do optical illusions work?",
-                  "How does the human brain work?",
-                  "How do black holes work?",
-                  "How does DNA work?",
-                  "How do antibiotics work?",
-                  "How does the stock market work?",
-                ].map((topic, index) => (
-                  <Card
-                    key={index}
-                    className="hover:shadow-md transition-shadow cursor-pointer group"
-                    onClick={() => onStartExploration(topic)}
-                  >
-                    <CardContent className="p-6">
-                      <h3 className="font-medium text-gray-900 mb-2 group-hover:text-blue-600 transition-colors">
-                        {topic}
-                      </h3>
-                      <p className="text-sm text-gray-500">Click to start learning about this topic</p>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
+          
+          {relatedQuestionsState.loading && (
+            <div className="text-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-4"></div>
+              <p className="text-gray-600">Loading related questions...</p>
             </div>
-          </div>
-        )}
+          )}
+          
+          {relatedQuestionsState.error && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+              <p className="text-red-800">Error: {relatedQuestionsState.error}</p>
+              <Button onClick={clearError} variant="outline" className="mt-2 bg-transparent">
+                Try Again
+              </Button>
+            </div>
+          )}
+          
+          {relatedQuestionsState.questions.length > 0 ? (
+            <div className="space-y-6">
+              {/* Questions by Category */}
+              {['basic', 'intermediate', 'advanced'].map((category) => {
+                const questionsInCategory = relatedQuestionsState.questions.filter(q => q.category === category)
+                if (questionsInCategory.length === 0) return null
+                
+                return (
+                  <div key={category}>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4 capitalize">
+                      {category} Questions
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {questionsInCategory.map((question, index) => (
+                        <Card
+                          key={index}
+                          className="hover:shadow-md transition-shadow cursor-pointer group"
+                          onClick={() => onStartExploration(question.question)}
+                        >
+                          <CardContent className="p-4">
+                            <div className="flex items-start justify-between mb-2">
+                              <Badge 
+                                variant={category === 'basic' ? 'secondary' : category === 'intermediate' ? 'default' : 'destructive'}
+                                className="text-xs"
+                              >
+                                {question.focus_area}
+                              </Badge>
+                              <Badge variant="outline" className="text-xs">
+                                {category}
+                              </Badge>
+                            </div>
+                            <h4 className="font-medium text-gray-900 mb-2 group-hover:text-blue-600 transition-colors text-sm leading-relaxed">
+                              {question.question}
+                            </h4>
+                            <p className="text-xs text-gray-500">Click to start learning about this topic</p>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+              
+              {relatedQuestionsState.processingTime && (
+                <div className="text-center text-sm text-gray-500">
+                  Generated in {relatedQuestionsState.processingTime.toFixed(2)} seconds
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-center py-12">
+              <div className="text-gray-400 mb-4">
+                <BookOpen className="h-16 w-16 mx-auto mb-4" />
+              </div>
+              <h3 className="text-xl font-medium text-gray-900 mb-2">No related questions yet</h3>
+              <p className="text-gray-600 mb-6">
+                Click "Load Related Questions" above to see AI-generated questions based on recent topics
+              </p>
+              <Button onClick={onBack} className="bg-blue-500 hover:bg-blue-600 text-white">
+                Start Learning
+              </Button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

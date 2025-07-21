@@ -11,6 +11,7 @@ from backend.dspy_modules import (
     generate_flashcards_module,
     generate_quiz_module,
     Lesson,
+    RelatedQuestion,
     RelatedQuestionsSet,
     Flashcards
 )
@@ -212,6 +213,7 @@ class TaskQueue:
     async def _process_query_related_questions_task(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Process query related questions generation task using DSPy"""
         from backend.monitoring import performance_monitor
+        from backend.utils import manual_parse_related_questions
 
         start_time = time.time()
         query = payload['query']
@@ -239,6 +241,35 @@ class TaskQueue:
                 'success': True
             }
         except Exception as e:
+            print(f"DSPy parsing failed for related questions: {e}")
+            print("Attempting manual parsing...")
+            
+            # Get the raw response from the error
+            if hasattr(e, 'lm_response'):
+                raw_response = e.lm_response
+                related_questions = manual_parse_related_questions(raw_response)
+                if related_questions:
+                    print(f"Manual parsing successful! Found {len(related_questions)} related questions.")
+                    
+                    processing_time = time.time() - start_time
+                    
+                    # Save to database
+                    await db.save_related_questions_history(
+                        query_id=query_id,
+                        questions_json=json.dumps([q.model_dump() for q in related_questions]),
+                        processing_time=processing_time
+                    )
+                    
+                    return {
+                        'related_questions': [q.model_dump() for q in related_questions],
+                        'processing_time': processing_time,
+                        'success': True
+                    }
+                else:
+                    print("Manual parsing also failed.")
+            else:
+                print("No raw response available for manual parsing.")
+            
             processing_time = time.time() - start_time
             return {
                 'error': str(e),
@@ -250,6 +281,7 @@ class TaskQueue:
     async def _process_query_lessons_task(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Process query lessons generation task using DSPy"""
         from backend.monitoring import performance_monitor
+        from backend.utils import manual_parse_lessons, manual_parse_flashcards, manual_parse_quiz
         
         start_time = time.time()
         query = payload['query']
@@ -303,6 +335,41 @@ class TaskQueue:
 
                     except Exception as e:
                         print(f"Error generating flashcards/quiz for lesson {lesson_index}: {e}")
+                        # Try manual parsing for flashcards
+                        try:
+                            if hasattr(e, 'lm_response'):
+                                raw_response = e.lm_response
+                                flashcards = manual_parse_flashcards(raw_response)
+                                if flashcards:
+                                    print(f"Manual parsing of flashcards successful for lesson {lesson_index}")
+                                    processing_time_fc = time.time() - start_time_fc
+                                    
+                                    await db.save_flashcards_history(
+                                        query_id=query_id,
+                                        lesson_index=lesson_index,
+                                        lesson_json=lesson.model_dump_json(),
+                                        flashcards_json=json.dumps([c.model_dump() for c in flashcards]),
+                                        processing_time=processing_time_fc
+                                    )
+                                    
+                                    # Try manual parsing for quiz
+                                    try:
+                                        quiz_response = await generate_quiz_module.acall(flashcards={"cards": [c.model_dump() for c in flashcards]})
+                                        quiz = quiz_response.quiz
+                                    except Exception as quiz_e:
+                                        if hasattr(quiz_e, 'lm_response'):
+                                            quiz = manual_parse_quiz(quiz_e.lm_response)
+                                            if quiz:
+                                                print(f"Manual parsing of quiz successful for lesson {lesson_index}")
+                                                processing_time_quiz = time.time() - start_time_quiz
+                                                await db.save_quiz_history(
+                                                    query_id=query_id,
+                                                    lesson_index=lesson_index,
+                                                    quiz_json=quiz.model_dump_json(),
+                                                    processing_time=processing_time_quiz
+                                                )
+                        except Exception as manual_e:
+                            print(f"Manual parsing also failed for lesson {lesson_index}: {manual_e}")
 
                 tasks = [generate_flashcards_and_quiz_for_lesson(lesson, index) for index, lesson in enumerate(lessons)]
                 asyncio.create_task(asyncio.gather(*tasks, return_exceptions=True))
@@ -313,6 +380,107 @@ class TaskQueue:
                 'success': True
             }
         except Exception as e:
+            print(f"DSPy parsing failed for lessons: {e}")
+            print("Attempting manual parsing...")
+            
+            # Get the raw response from the error
+            if hasattr(e, 'lm_response'):
+                raw_response = e.lm_response
+                lessons = manual_parse_lessons(raw_response)
+                if lessons:
+                    print(f"Manual parsing successful! Found {len(lessons)} lessons.")
+                    
+                    processing_time = time.time() - start_time
+                    
+                    await db.save_lessons_history(
+                        query_id=query_id,
+                        lessons_json=json.dumps([l.model_dump() for l in lessons]),
+                        processing_time=processing_time
+                    )
+                    
+                    # Schedule flashcard and quiz generation in background with manual parsing fallbacks
+                    if lessons:
+                        async def generate_flashcards_and_quiz_for_lesson_with_manual_fallback(lesson: Lesson, lesson_index: int):
+                            try:
+                                start_time_fc = time.time()
+                                
+                                flashcard_response = await generate_flashcards_module.acall(topic=lesson.model_dump())
+                                flashcards = flashcard_response.flashcards.cards
+                                
+                                processing_time_fc = time.time() - start_time_fc
+                                
+                                await db.save_flashcards_history(
+                                    query_id=query_id,
+                                    lesson_index=lesson_index,
+                                    lesson_json=lesson.model_dump_json(),
+                                    flashcards_json=json.dumps([c.model_dump() for c in flashcards]),
+                                    processing_time=processing_time_fc
+                                )
+
+                                # Generate quiz
+                                start_time_quiz = time.time()
+                                quiz_response = await generate_quiz_module.acall(flashcards=flashcard_response.flashcards.model_dump())
+                                quiz = quiz_response.quiz
+                                processing_time_quiz = time.time() - start_time_quiz
+
+                                await db.save_quiz_history(
+                                    query_id=query_id,
+                                    lesson_index=lesson_index,
+                                    quiz_json=quiz.model_dump_json(),
+                                    processing_time=processing_time_quiz
+                                )
+
+                            except Exception as e:
+                                print(f"Error generating flashcards/quiz for lesson {lesson_index}: {e}")
+                                # Try manual parsing for flashcards
+                                try:
+                                    if hasattr(e, 'lm_response'):
+                                        raw_response = e.lm_response
+                                        flashcards = manual_parse_flashcards(raw_response)
+                                        if flashcards:
+                                            print(f"Manual parsing of flashcards successful for lesson {lesson_index}")
+                                            processing_time_fc = time.time() - start_time_fc
+                                            
+                                            await db.save_flashcards_history(
+                                                query_id=query_id,
+                                                lesson_index=lesson_index,
+                                                lesson_json=lesson.model_dump_json(),
+                                                flashcards_json=json.dumps([c.model_dump() for c in flashcards]),
+                                                processing_time=processing_time_fc
+                                            )
+                                            
+                                            # Try manual parsing for quiz
+                                            try:
+                                                quiz_response = await generate_quiz_module.acall(flashcards={"cards": [c.model_dump() for c in flashcards]})
+                                                quiz = quiz_response.quiz
+                                            except Exception as quiz_e:
+                                                if hasattr(quiz_e, 'lm_response'):
+                                                    quiz = manual_parse_quiz(quiz_e.lm_response)
+                                                    if quiz:
+                                                        print(f"Manual parsing of quiz successful for lesson {lesson_index}")
+                                                        processing_time_quiz = time.time() - start_time_quiz
+                                                        await db.save_quiz_history(
+                                                            query_id=query_id,
+                                                            lesson_index=lesson_index,
+                                                            quiz_json=quiz.model_dump_json(),
+                                                            processing_time=processing_time_quiz
+                                                        )
+                                except Exception as manual_e:
+                                    print(f"Manual parsing also failed for lesson {lesson_index}: {manual_e}")
+
+                        tasks = [generate_flashcards_and_quiz_for_lesson_with_manual_fallback(lesson, index) for index, lesson in enumerate(lessons)]
+                        asyncio.create_task(asyncio.gather(*tasks, return_exceptions=True))
+                    
+                    return {
+                        'lessons': [l.model_dump() for l in lessons],
+                        'processing_time': processing_time,
+                        'success': True
+                    }
+                else:
+                    print("Manual parsing also failed.")
+            else:
+                print("No raw response available for manual parsing.")
+            
             processing_time = time.time() - start_time
             return {
                 'error': str(e),

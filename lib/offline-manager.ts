@@ -232,6 +232,99 @@ class OfflineManager {
     }
   }
 
+  // New lesson-based progress tracking methods
+  async saveLessonProgress(queryId: string, lessonIndex: number, completed: boolean = false): Promise<void> {
+    try {
+      const progressKey = `lesson_progress_${queryId}`
+      const currentProgress = JSON.parse(localStorage.getItem(progressKey) || '{}')
+      
+      currentProgress[lessonIndex] = {
+        completed,
+        lastAccessed: new Date().toISOString(),
+        completedAt: completed ? new Date().toISOString() : currentProgress[lessonIndex]?.completedAt
+      }
+      
+      localStorage.setItem(progressKey, JSON.stringify(currentProgress))
+      
+      // Also save to IndexedDB if available
+      await offlineDB.saveTopic({
+        id: queryId,
+        title: queryId, // Will be updated with actual topic when available
+        category: 'lesson',
+        completedSteps: Object.keys(currentProgress).filter(k => currentProgress[k].completed).map(Number),
+        createdAt: new Date(),
+        lastAccessed: new Date()
+      })
+    } catch (error) {
+      console.error("Error saving lesson progress:", error)
+    }
+  }
+
+  async getLessonProgress(queryId: string): Promise<Record<number, { completed: boolean, lastAccessed: string, completedAt?: string }>> {
+    try {
+      const progressKey = `lesson_progress_${queryId}`
+      return JSON.parse(localStorage.getItem(progressKey) || '{}')
+    } catch (error) {
+      console.error("Error getting lesson progress:", error)
+      return {}
+    }
+  }
+
+  async getLastAccessedLesson(queryId: string): Promise<number> {
+    try {
+      const progress = await this.getLessonProgress(queryId)
+      const accessedLessons = Object.entries(progress)
+        .sort(([,a], [,b]) => new Date(b.lastAccessed).getTime() - new Date(a.lastAccessed).getTime())
+      
+      if (accessedLessons.length === 0) return 0
+      
+      // Return the last accessed lesson index
+      const lastAccessedIndex = parseInt(accessedLessons[0][0])
+      
+      // If the last accessed lesson is completed, start the next one
+      if (progress[lastAccessedIndex]?.completed) {
+        return lastAccessedIndex + 1
+      }
+      
+      return lastAccessedIndex
+    } catch (error) {
+      console.error("Error getting last accessed lesson:", error)
+      return 0
+    }
+  }
+
+  async saveTopicInfo(queryId: string, topic: string, totalLessons: number, isUserQuery: boolean = true): Promise<void> {
+    try {
+      // Only save if this is a user query, not an individual lesson step
+      if (!isUserQuery) {
+        return
+      }
+      
+      const topicInfoKey = `topic_info_${queryId}`
+      const topicInfo = {
+        queryId,
+        topic,
+        totalLessons,
+        isUserQuery,
+        createdAt: new Date().toISOString()
+      }
+      localStorage.setItem(topicInfoKey, JSON.stringify(topicInfo))
+    } catch (error) {
+      console.error("Error saving topic info:", error)
+    }
+  }
+
+  async getTopicInfo(queryId: string): Promise<{ queryId: string, topic: string, totalLessons: number, createdAt: string } | null> {
+    try {
+      const topicInfoKey = `topic_info_${queryId}`
+      const info = localStorage.getItem(topicInfoKey)
+      return info ? JSON.parse(info) : null
+    } catch (error) {
+      console.error("Error getting topic info:", error)
+      return null
+    }
+  }
+
   async getCompletedSteps(topic: string): Promise<number[]> {
     try {
       return await offlineDB.getCompletedSteps(topic)

@@ -4,34 +4,30 @@ import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { ArrowLeft, CheckCircle, XCircle, RotateCcw, Trophy, ArrowRight, BarChart3 } from "lucide-react"
+import { ArrowLeft, CheckCircle, XCircle, RotateCcw, Trophy, ArrowRight, BarChart3, AlertCircle } from "lucide-react"
 import { Progress } from "@/components/ui/progress"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Label } from "@/components/ui/label"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { offlineManager } from "@/lib/offline-manager"
+import { useQuiz } from "@/hooks/use-quiz"
+import { TrueFalseQuestion, MultipleChoiceQuestion } from "@/types/api"
 
 interface QuizPageProps {
-  flashcards: any[]
+  flashcards: any[] // Legacy prop, not used with API
   onBack: () => void
   onReturnHome: () => void
   onNextStep: () => void
-  explanation?: any
+  explanation?: any // Contains lesson data and query info
   onShowLibrary: () => void
 }
 
-interface QuizQuestion {
-  id: number
-  question: string
-  type: "multiple-choice" | "true-false"
-  options?: string[]
-  correctAnswer: string
-  explanation: string
-}
-
 interface QuizResult {
-  questionId: number
-  userAnswer: string
+  questionIndex: number
+  questionType: 'true_false' | 'multiple_choice'
+  userAnswer: string | number | boolean
   correct: boolean
+  explanation: string
 }
 
 export default function QuizPage({
@@ -42,64 +38,53 @@ export default function QuizPage({
   explanation,
   onShowLibrary,
 }: QuizPageProps) {
-  const [questions, setQuestions] = useState<QuizQuestion[]>([])
   const [currentQuestion, setCurrentQuestion] = useState(0)
-  const [selectedAnswer, setSelectedAnswer] = useState("")
+  const [selectedAnswer, setSelectedAnswer] = useState<string | number | boolean>("")
   const [results, setResults] = useState<QuizResult[]>([])
   const [showResult, setShowResult] = useState(false)
   const [quizComplete, setQuizComplete] = useState(false)
-  const [isLoading, setIsLoading] = useState(true)
+  const { state: quizState, fetchQuiz, clearError, getAllQuestions, getTotalQuestions } = useQuiz()
 
   useEffect(() => {
-    generateQuiz()
-  }, [flashcards])
+    loadQuiz()
+  }, [explanation])
 
-  const generateQuiz = async () => {
-    setIsLoading(true)
+  const loadQuiz = async () => {
+    // Extract query ID and lesson index from explanation object
+    const queryId = explanation?.queryId || 
+                   'b61c880c-817c-4345-8384-96e6993ab8ab' // fallback for testing
+    
+    const lessonIndex = explanation?.currentStepIndex ?? 0
 
-    // Simulate AI quiz generation based on the current step
-    await new Promise((resolve) => setTimeout(resolve, 1500))
-
-    const stepTitle = explanation?.step?.title || "General"
-    const stepKeyPoint = explanation?.step?.keyPoint || "Key concept"
-
-    const mockQuestions: QuizQuestion[] = [
-      {
-        id: 1,
-        question: `What is the main purpose of ${stepTitle}?`,
-        type: "multiple-choice",
-        options: [
-          "To provide backup functionality",
-          explanation?.step?.description || "To serve the primary function",
-          "To monitor other components",
-          "To reduce system complexity",
-        ],
-        correctAnswer: explanation?.step?.description || "To serve the primary function",
-        explanation: `${stepTitle} is important because: ${explanation?.step?.description}`,
-      },
-      {
-        id: 2,
-        question: `The key point about ${stepTitle.toLowerCase()} is: "${stepKeyPoint}"`,
-        type: "true-false",
-        correctAnswer: "true",
-        explanation: `This is correct. ${stepKeyPoint}`,
-      },
-    ]
-
-    setQuestions(mockQuestions)
-    setIsLoading(false)
+    try {
+      await fetchQuiz(queryId, lessonIndex)
+    } catch (error) {
+      console.warn('Failed to load quiz:', error)
+    }
   }
 
   const handleAnswerSubmit = () => {
-    if (!selectedAnswer) return
+    if (selectedAnswer === "" || !quizState.quiz) return
 
-    const currentQ = questions[currentQuestion]
-    const isCorrect = selectedAnswer.toLowerCase() === currentQ.correctAnswer.toLowerCase()
+    const allQuestions = getAllQuestions()
+    const currentQ = allQuestions[currentQuestion]
+    
+    let isCorrect = false
+    
+    if (currentQ.type === 'true_false') {
+      const tfQuestion = currentQ.question as TrueFalseQuestion
+      isCorrect = Boolean(selectedAnswer) === tfQuestion.correct_answer
+    } else if (currentQ.type === 'multiple_choice') {
+      const mcQuestion = currentQ.question as MultipleChoiceQuestion
+      isCorrect = Number(selectedAnswer) === mcQuestion.correct_answer
+    }
 
     const result: QuizResult = {
-      questionId: currentQ.id,
+      questionIndex: currentQuestion,
+      questionType: currentQ.type,
       userAnswer: selectedAnswer,
       correct: isCorrect,
+      explanation: currentQ.question.explanation,
     }
 
     setResults((prev) => [...prev, result])
@@ -107,22 +92,31 @@ export default function QuizPage({
   }
 
   const handleNextQuestion = async () => {
-    if (currentQuestion < questions.length - 1) {
+    const totalQuestions = getTotalQuestions()
+    
+    if (currentQuestion < totalQuestions - 1) {
       setCurrentQuestion((prev) => prev + 1)
       setSelectedAnswer("")
       setShowResult(false)
     } else {
       setQuizComplete(true)
 
-      // Mark step as completed and save quiz results
-      if (explanation?.currentStepIndex !== undefined) {
-        const topic = explanation.parentExplanation?.topic || explanation.topic
-        await offlineManager.saveCompletedSteps(topic, explanation.currentStepIndex)
-
-        // Save quiz result for stats
+      // Mark lesson as completed and save quiz results
+      if (explanation?.currentStepIndex !== undefined && explanation?.queryId) {
+        // Save lesson completion progress
+        await offlineManager.saveLessonProgress(explanation.queryId, explanation.currentStepIndex, true)
+        
+        // Topic info is already saved by the explanation page for user queries
+        // Don't save topic info here to avoid creating entries for individual lesson steps
+        
+        // Save quiz result for stats (using queryId as topic identifier)
         const score = results.filter((r) => r.correct).length
-        const percentage = Math.round((score / questions.length) * 100)
-        await offlineManager.saveQuizResult(topic, percentage, questions.length, explanation.currentStepIndex)
+        const percentage = Math.round((score / totalQuestions) * 100)
+        await offlineManager.saveQuizResult(explanation.queryId, percentage, totalQuestions, explanation.currentStepIndex)
+        
+        // Also save to old system for backward compatibility
+        const topic = explanation.lesson?.title || explanation.topic || 'Quiz'
+        await offlineManager.saveCompletedSteps(topic, explanation.currentStepIndex)
       }
 
       // Update last study date
@@ -142,14 +136,64 @@ export default function QuizPage({
     onNextStep()
   }
 
-  if (isLoading) {
+  if (quizState.loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-50 to-pink-100 p-4">
         <div className="max-w-4xl mx-auto">
           <div className="text-center py-20">
             <Trophy className="h-16 w-16 text-purple-600 mx-auto mb-4 animate-pulse" />
-            <h2 className="text-2xl font-semibold text-gray-900 mb-2">Preparing Your Quiz...</h2>
-            <p className="text-gray-600">Creating questions from your flashcards</p>
+            <h2 className="text-2xl font-semibold text-gray-900 mb-2">Loading Quiz...</h2>
+            <p className="text-gray-600">Fetching quiz for lesson {(explanation?.currentStepIndex ?? 0) + 1}</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Show error state if API failed
+  if (quizState.error && !quizState.quiz) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 to-pink-100 p-4">
+        <div className="max-w-4xl mx-auto">
+          <div className="flex items-center gap-3 mb-6">
+            <Button variant="outline" onClick={onBack} className="h-10 w-10 p-0 bg-transparent">
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <h1 className="text-xl font-bold text-gray-900">Error Loading Quiz</h1>
+          </div>
+          
+          <Alert className="mb-4">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              Failed to load quiz: {quizState.error}
+            </AlertDescription>
+          </Alert>
+          
+          <div className="flex gap-3">
+            <Button onClick={() => {
+              clearError()
+              loadQuiz()
+            }}>
+              Try Again
+            </Button>
+            <Button variant="outline" onClick={onBack}>
+              Go Back
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (!quizState.quiz || getTotalQuestions() === 0) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 to-pink-100 p-4">
+        <div className="max-w-4xl mx-auto">
+          <div className="text-center py-20">
+            <Trophy className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+            <h2 className="text-2xl font-semibold text-gray-900 mb-2">No Quiz Available</h2>
+            <p className="text-gray-600">No quiz found for this lesson.</p>
+            <Button onClick={onBack} className="mt-4">Go Back</Button>
           </div>
         </div>
       </div>
@@ -157,12 +201,15 @@ export default function QuizPage({
   }
 
   const score = results.filter((r) => r.correct).length
-  const progress = ((currentQuestion + (showResult ? 1 : 0)) / questions.length) * 100
+  const totalQuestions = getTotalQuestions()
+  const progress = ((currentQuestion + (showResult ? 1 : 0)) / totalQuestions) * 100
   const isStepMode = explanation?.currentStepIndex !== undefined
   const isLastStep = isStepMode && explanation?.currentStepIndex === explanation?.totalSteps - 1
+  const allQuestions = getAllQuestions()
+  const currentQ = allQuestions[currentQuestion]
 
   if (quizComplete) {
-    const percentage = Math.round((score / questions.length) * 100)
+    const percentage = Math.round((score / totalQuestions) * 100)
 
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-50 to-pink-100 p-3">
@@ -177,7 +224,7 @@ export default function QuizPage({
               <CardContent className="p-6 text-center">
                 <div className="text-4xl font-bold text-purple-600 mb-3">{percentage}%</div>
                 <p className="text-lg text-gray-700 mb-3">
-                  You scored {score} out of {questions.length} correctly!
+                  You scored {score} out of {totalQuestions} correctly!
                 </p>
 
                 <div className="space-y-2 text-left">
@@ -215,19 +262,24 @@ export default function QuizPage({
                 </Button>
               )}
             </div>
+            
+            {/* Processing time info */}
+            {quizState.processingTime && (
+              <p className="text-xs text-gray-500 mt-4">
+                Generated in {quizState.processingTime.toFixed(2)} seconds
+              </p>
+            )}
           </div>
         </div>
       </div>
     )
   }
 
-  const currentQ = questions[currentQuestion]
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-pink-100 p-3">
-      <div className="max-w-4xl mx-auto h-screen flex flex-col">
+      <div className="max-w-3xl mx-auto min-h-screen flex flex-col justify-center">
         {/* Header - Compact */}
-        <div className="flex items-center gap-3 mb-4">
+        <div className="flex items-center gap-3 mb-3">
           <Button variant="outline" onClick={onBack} className="h-10 w-10 p-0 bg-transparent">
             <ArrowLeft className="h-4 w-4" />
           </Button>
@@ -236,11 +288,11 @@ export default function QuizPage({
               {isStepMode ? `Step ${explanation.currentStepIndex + 1} Quiz` : "Quiz Time!"}
             </h1>
             <p className="text-sm text-gray-600 truncate">
-              {isStepMode ? `Testing: ${explanation.step.title}` : "Test your knowledge"}
+              {isStepMode ? `Testing: ${explanation.lesson?.title || 'Lesson Content'}` : "Test your knowledge"}
             </p>
           </div>
           <Badge variant="secondary" className="text-sm px-3 py-1">
-            {currentQuestion + 1} / {questions.length}
+            {currentQuestion + 1} / {totalQuestions}
           </Badge>
           <Button
             variant="outline"
@@ -253,22 +305,22 @@ export default function QuizPage({
         </div>
 
         {/* Progress */}
-        <div className="mb-4">
+        <div className="mb-3">
           <Progress value={progress} className="h-2" />
         </div>
 
         {/* Question Card - Main Content */}
-        <Card className="mb-4 flex-1 flex flex-col">
+        <Card className="mb-3">
           <CardHeader className="pb-3">
-            <CardTitle className="text-lg">{currentQ?.question}</CardTitle>
+            <CardTitle className="text-lg leading-relaxed">{currentQ?.question.question}</CardTitle>
           </CardHeader>
-          <CardContent className="flex-1">
-            {currentQ?.type === "multiple-choice" && (
-              <RadioGroup value={selectedAnswer} onValueChange={setSelectedAnswer}>
-                <div className="space-y-3">
-                  {currentQ.options?.map((option, index) => (
-                    <div key={index} className="flex items-center space-x-3 p-3 rounded-lg border hover:bg-gray-50">
-                      <RadioGroupItem value={option} id={`option-${index}`} />
+          <CardContent className="pb-4">
+            {currentQ?.type === "multiple_choice" && (
+              <RadioGroup value={selectedAnswer?.toString()} onValueChange={(value) => setSelectedAnswer(parseInt(value))}>
+                <div className="space-y-2">
+                  {(currentQ.question as MultipleChoiceQuestion).options.map((option, index) => (
+                    <div key={index} className="flex items-center space-x-3 p-2.5 rounded-lg border hover:bg-gray-50">
+                      <RadioGroupItem value={index.toString()} id={`option-${index}`} />
                       <Label htmlFor={`option-${index}`} className="text-sm cursor-pointer flex-1">
                         {option}
                       </Label>
@@ -278,16 +330,16 @@ export default function QuizPage({
               </RadioGroup>
             )}
 
-            {currentQ?.type === "true-false" && (
-              <RadioGroup value={selectedAnswer} onValueChange={setSelectedAnswer}>
-                <div className="space-y-3">
-                  <div className="flex items-center space-x-3 p-3 rounded-lg border hover:bg-gray-50">
+            {currentQ?.type === "true_false" && (
+              <RadioGroup value={selectedAnswer?.toString()} onValueChange={(value) => setSelectedAnswer(value === "true")}>
+                <div className="space-y-2">
+                  <div className="flex items-center space-x-3 p-2.5 rounded-lg border hover:bg-gray-50">
                     <RadioGroupItem value="true" id="true" />
                     <Label htmlFor="true" className="text-sm cursor-pointer flex-1">
                       True
                     </Label>
                   </div>
-                  <div className="flex items-center space-x-3 p-3 rounded-lg border hover:bg-gray-50">
+                  <div className="flex items-center space-x-3 p-2.5 rounded-lg border hover:bg-gray-50">
                     <RadioGroupItem value="false" id="false" />
                     <Label htmlFor="false" className="text-sm cursor-pointer flex-1">
                       False
@@ -302,9 +354,9 @@ export default function QuizPage({
         {/* Result Display */}
         {showResult && (
           <Card
-            className={`mb-4 ${results[results.length - 1]?.correct ? "border-green-500 bg-green-50" : "border-red-500 bg-red-50"}`}
+            className={`mb-3 ${results[results.length - 1]?.correct ? "border-green-500 bg-green-50" : "border-red-500 bg-red-50"}`}
           >
-            <CardContent className="p-4">
+            <CardContent className="p-3">
               <div className="flex items-center gap-3 mb-2">
                 {results[results.length - 1]?.correct ? (
                   <CheckCircle className="h-6 w-6 text-green-500" />
@@ -315,23 +367,29 @@ export default function QuizPage({
                   {results[results.length - 1]?.correct ? "Correct!" : "Incorrect"}
                 </h3>
               </div>
-              <p className="text-sm text-gray-700 mb-2">{currentQ?.explanation}</p>
-              {!results[results.length - 1]?.correct && (
-                <p className="text-sm font-medium text-gray-900">Correct answer: {currentQ?.correctAnswer}</p>
+              <p className="text-sm text-gray-700 mb-2">{results[results.length - 1]?.explanation}</p>
+              {!results[results.length - 1]?.correct && currentQ && (
+                <p className="text-sm font-medium text-gray-900">
+                  Correct answer: {
+                    currentQ.type === 'true_false' 
+                      ? (currentQ.question as TrueFalseQuestion).correct_answer ? 'True' : 'False'
+                      : (currentQ.question as MultipleChoiceQuestion).options[(currentQ.question as MultipleChoiceQuestion).correct_answer]
+                  }
+                </p>
               )}
             </CardContent>
           </Card>
         )}
 
-        {/* Action Button - Fixed at bottom */}
-        <div className="text-center">
+        {/* Action Button - Centered */}
+        <div className="text-center mt-4">
           {!showResult ? (
-            <Button onClick={handleAnswerSubmit} disabled={!selectedAnswer} className="h-12 px-8 text-sm" size="lg">
+            <Button onClick={handleAnswerSubmit} disabled={selectedAnswer === ""} className="h-11 px-8 text-sm" size="lg">
               Submit Answer
             </Button>
           ) : (
-            <Button onClick={handleNextQuestion} className="h-12 px-8 text-sm" size="lg">
-              {currentQuestion < questions.length - 1 ? "Next Question" : "Finish Quiz"}
+            <Button onClick={handleNextQuestion} className="h-11 px-8 text-sm" size="lg">
+              {currentQuestion < totalQuestions - 1 ? "Next Question" : "Finish Quiz"}
             </Button>
           )}
         </div>
