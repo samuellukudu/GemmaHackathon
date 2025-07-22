@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
-import APIClient, { APIClientError } from '@/lib/api-client'
-import { ContentResponse, RelatedQuestion } from '@/types/api'
+import APIClient, { APIClientError } from '../lib/api-client'
+import { ContentResponse, RelatedQuestion } from '../types/api'
 
 interface RelatedQuestionsState {
   loading: boolean

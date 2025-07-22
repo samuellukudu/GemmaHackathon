@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from 'react'
-import { offlineManager } from '@/lib/offline-manager'
 import { useLessonProgress } from './use-lesson-progress'
 
 interface LibraryStats {

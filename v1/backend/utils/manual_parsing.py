@@ -65,12 +65,27 @@ def manual_parse_related_questions(raw_response: str) -> List[RelatedQuestion]:
         questions = []
         
         for question_data in questions_data:
-            question = RelatedQuestion(
-                question=question_data['question'],
-                category=question_data['category'],
-                focus_area=question_data['focus_area']
-            )
-            questions.append(question)
+            try:
+                # Fix common typos in category
+                category = question_data['category'].lower().strip()
+                if category == 'intermediatate':  # Fix the typo
+                    category = 'intermediate'
+                elif category not in ['basic', 'intermediate', 'advanced']:
+                    # Default to 'basic' for unknown categories
+                    print(f"Unknown category '{category}', defaulting to 'basic'")
+                    category = 'basic'
+                
+                question = RelatedQuestion(
+                    question=question_data.get('question', 'Unknown question'),
+                    category=category,
+                    focus_area=question_data.get('focus_area', 'General')
+                )
+                questions.append(question)
+            except Exception as e:
+                print(f"Failed to parse individual question: {e}")
+                print(f"Question data: {question_data}")
+                # Skip this question but continue with others
+                continue
         
         return questions
     except Exception as e:

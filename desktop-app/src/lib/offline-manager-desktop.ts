@@ -1,59 +1,67 @@
 import { offlineDB } from './db';
-import { DesktopAPIClient } from './api-client-desktop';
+import APIClient from './api-client';
 
-
-
-export class DesktopOfflineManager {
-  private apiClient: DesktopAPIClient;
-  interface PendingSyncItem {
+interface PendingSyncItem {
   id: string;
+  type: 'explanation' | 'flashcard' | 'quiz';
   data: any;
 }
 
-private syncQueue: PendingSyncItem[] = [];
+export class DesktopOfflineManager {
+  private syncQueue: PendingSyncItem[] = [];
 
   constructor() {
-    this.apiClient = new DesktopAPIClient();
     this.setupSyncQueue();
   }
 
   private setupSyncQueue() {
-    // Implement sync queue logic
+    // Initialize sync queue from storage
+    // TODO: Implement loading from IndexedDB
   }
 
-  async syncWithCloud() {
-    if (!this.isOnline()) return;
-
-    const pendingItems = await this.getPendingSyncItems();
-    
-    for (const item of pendingItems) {
+  public async syncPendingItems() {
+    for (const item of this.syncQueue) {
       try {
         await this.syncItem(item);
         await this.markItemSynced(item.id);
       } catch (error) {
-        console.error('Sync failed for item:', item, error);
+        console.error('Sync failed for item:', item.id, error);
       }
     }
   }
 
-  private isOnline() {
-    return true; // Implement actual check
+  private async syncItem(item: PendingSyncItem) {
+    // Sync to API based on type
+    switch (item.type) {
+      case 'explanation':
+        // Use generic API call - adjust endpoint based on your backend
+        await fetch(`http://localhost:8000/api/explanations`, { 
+          method: 'POST', 
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(item.data) 
+        });
+        break;
+      case 'flashcard':
+        await fetch(`http://localhost:8000/api/flashcards`, { 
+          method: 'POST', 
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(item.data) 
+        });
+        break;
+      case 'quiz':
+        await fetch(`http://localhost:8000/api/quiz`, { 
+          method: 'POST', 
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(item.data) 
+        });
+        break;
+    }
   }
 
-  private async getPendingSyncItems(): Promise<PendingSyncItem[]> {
-  // TODO: Implement actual logic to get pending items from DB or queue
-  return this.syncQueue;
-}
-
-  private async syncItem(item: PendingSyncItem) {
-  // TODO: Implement sync logic, e.g., send to API
-  console.log('Syncing item:', item);
-}
-
   private async markItemSynced(id: string) {
-  // TODO: Implement marking as synced in DB
-  this.syncQueue = this.syncQueue.filter(item => item.id !== id);
-}
+    // TODO: Implement marking as synced in DB
+    this.syncQueue = this.syncQueue.filter(item => item.id !== id);
+  }
 
   async exportUserData(format: 'json' | 'csv' | 'pdf') {
     const data = await this.gatherUserData();
@@ -111,44 +119,38 @@ private syncQueue: PendingSyncItem[] = [];
     return { success: true, restoredItems: parsed.data.length };
   }
 
-  private async gatherUserData(): Promise<{explanations: ExplanationData[]; flashcards: Flashcard[]; quizzes: Quiz[];}> {
-  return {
-    explanations: await offlineDB.getAllExplanations(),
-    flashcards: await offlineDB.getAllFlashcards(),
-    quizzes: await offlineDB.getAllQuizzes()
-  };
-}
+  private async gatherUserData(): Promise<{explanations: any[]; flashcards: any[]; quizzes: any[];}> {
+    // TODO: Implement actual data gathering from IndexedDB
+    return {
+      explanations: [],
+      flashcards: [],
+      quizzes: []
+    };
+  }
 
   private convertToCSV(data: any): string {
-  // Basic CSV conversion for demonstration
-  let csv = 'Type,ID,Content\n';
-  Object.entries(data).forEach(([type, items]) => {
-    (items as any[]).forEach(item => {
-      csv += `${type},${item.id},${JSON.stringify(item)}\n`;
-    });
-  });
-  return csv;
-}
+    // TODO: Implement CSV conversion
+    return 'CSV data placeholder';
+  }
 
   private convertToPDF(data: any): string {
-  // Placeholder for PDF, as it requires a library like pdfkit
-  // For now, return a simple text representation
-  return JSON.stringify(data);
-}
+    // TODO: Implement PDF conversion
+    return 'PDF data placeholder';
+  }
 
   private async validateImportData(data: any) {
-    // Implement validation
+    // TODO: Implement validation
   }
 
   private async importData(data: any) {
-    // Implement data import to IndexedDB
+    // TODO: Implement data import to IndexedDB
   }
 
   private async validateBackupData(data: any) {
-    // Implement
+    // TODO: Implement backup validation
   }
 
   private async clearCurrentData() {
-    // Implement data clearing
+    // TODO: Implement data clearing
   }
 }

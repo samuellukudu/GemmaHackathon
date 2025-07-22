@@ -38,6 +38,37 @@ export interface ContentListResponse {
   total_count: number
 }
 
+// Content Generation Task Types
+export enum ContentTaskType {
+  LESSONS = 'lessons',
+  FLASHCARDS = 'flashcards', 
+  QUIZ = 'quiz',
+  RELATED_QUESTIONS = 'related_questions'
+}
+
+export interface ContentGenerationTask {
+  id: string
+  type: ContentTaskType
+  name: string
+  description: string
+  status: TaskStatus
+  progress: number // 0-100
+  startTime?: Date
+  completedTime?: Date
+  error?: string
+  estimatedDuration: number // in seconds
+}
+
+export interface TaskTrackerState {
+  queryId: string | null
+  tasks: ContentGenerationTask[]
+  overallProgress: number
+  isComplete: boolean
+  hasErrors: boolean
+  startTime?: Date
+  completedTime?: Date
+}
+
 // Lesson content structure (matches backend API)
 export interface Lesson {
   title: string

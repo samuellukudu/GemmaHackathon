@@ -6,14 +6,19 @@ interface FlashcardsState {
   loading: boolean
   error: string | null
   flashcards: Flashcard[]
+  queryId: string | null
+  lessonIndex: number | null
+  createdAt: string | null
   processingTime: number | null
 }
 
 interface UseFlashcardsReturn {
   state: FlashcardsState
-  fetchFlashcards: (queryId: string, lessonIndex?: number) => Promise<void>
+  fetchFlashcards: (queryId: string, lessonIndex: number) => Promise<void>
   clearError: () => void
   reset: () => void
+  getFlashcard: (index: number) => Flashcard | null
+  getTotalFlashcards: () => number
 }
 
 export function useFlashcards(): UseFlashcardsReturn {
@@ -21,28 +26,40 @@ export function useFlashcards(): UseFlashcardsReturn {
     loading: false,
     error: null,
     flashcards: [],
+    queryId: null,
+    lessonIndex: null,
+    createdAt: null,
     processingTime: null,
   })
 
-  const fetchFlashcards = useCallback(async (queryId: string, lessonIndex: number = 0) => {
+  const fetchFlashcards = useCallback(async (queryId: string, lessonIndex: number) => {
     setState(prev => ({
       ...prev,
       loading: true,
       error: null,
+      queryId,
+      lessonIndex,
     }))
 
     try {
-      const response: ContentResponse = await APIClient.getFlashcards(queryId, lessonIndex)
+      const response: ContentResponse = await APIClient.getFlashcardsByLesson(queryId, lessonIndex)
       
-      // Parse the flashcards content
-      const flashcards: Flashcard[] = Array.isArray(response.content) 
-        ? response.content 
-        : response.content?.flashcards || []
+      // Validate that content is an array of flashcards
+      if (!Array.isArray(response.content)) {
+        throw new Error('Invalid response format: expected array of flashcards')
+      }
+
+      const flashcards: Flashcard[] = response.content.map((item: any) => ({
+        term: item.term || item.front || 'Unknown Term',
+        explanation: item.explanation || item.back || 'No explanation available',
+        difficulty: item.difficulty || 'medium',
+      }))
 
       setState(prev => ({
         ...prev,
         loading: false,
         flashcards,
+        createdAt: response.created_at,
         processingTime: response.processing_time || null,
       }))
 
@@ -50,7 +67,11 @@ export function useFlashcards(): UseFlashcardsReturn {
       let errorMessage = 'Failed to fetch flashcards'
       
       if (error instanceof APIClientError) {
-        errorMessage = error.message
+        if (error.statusCode === 404) {
+          errorMessage = 'Flashcards not found. They may still be generating.'
+        } else {
+          errorMessage = error.message
+        }
       } else if (error instanceof Error) {
         errorMessage = error.message
       }
@@ -75,15 +96,31 @@ export function useFlashcards(): UseFlashcardsReturn {
       loading: false,
       error: null,
       flashcards: [],
+      queryId: null,
+      lessonIndex: null,
+      createdAt: null,
       processingTime: null,
     })
   }, [])
+
+  const getFlashcard = useCallback((index: number): Flashcard | null => {
+    if (index >= 0 && index < state.flashcards.length) {
+      return state.flashcards[index]
+    }
+    return null
+  }, [state.flashcards])
+
+  const getTotalFlashcards = useCallback(() => {
+    return state.flashcards.length
+  }, [state.flashcards.length])
 
   return {
     state,
     fetchFlashcards,
     clearError,
     reset,
+    getFlashcard,
+    getTotalFlashcards,
   }
 }
 

@@ -4,8 +4,9 @@ import ExplanationPage from "./ExplanationPage"
 import FlashcardsPage from "./FlashcardsPage"
 import QuizPage from "./QuizPage"
 import ExplorePage from "./ExplorePage"
-import LibraryPage from "./LibraryPage"
-import LessonsPage from "./LessonsPage"
+import MyLibraryPage from "./MyLibraryPage"
+import MyLessonsPage from "./MyLessonsPage"
+import { useLessonProgress } from '../hooks/use-lesson-progress'
 
 type AppState = "home" | "explanation" | "flashcards" | "quiz" | "explore" | "library" | "lessons"
 
@@ -16,13 +17,26 @@ export default function AppShell() {
   const [currentFlashcards, setCurrentFlashcards] = useState<any[]>([])
   const [currentStepIndex, setCurrentStepIndex] = useState(0)
   const [isUserQuery, setIsUserQuery] = useState(true)
+  const { getLastAccessedLesson, lessonProgressList } = useLessonProgress()
 
-  const handleStartExploration = useCallback((topic: string) => {
+  const handleStartExploration = useCallback(async (topic: string, category?: string, fromLessonContinue: boolean = false) => {
     setCurrentTopic(topic)
-    setCurrentStepIndex(0)
-    setIsUserQuery(true)
+    
+    // Check if we have existing progress for this topic
+    const existingLesson = lessonProgressList.find(lesson => lesson.topic === topic)
+    if (existingLesson) {
+      // Continue from where user left off
+      const lastAccessedLesson = await getLastAccessedLesson(existingLesson.queryId)
+      setCurrentStepIndex(lastAccessedLesson)
+      setIsUserQuery(true) // Existing lessons are always user queries
+    } else {
+      // Start from beginning for new topics
+      setCurrentStepIndex(0)
+      setIsUserQuery(!fromLessonContinue) // New topics are user queries unless continuing from lesson navigation
+    }
+    
     setCurrentState("explanation")
-  }, [])
+  }, [getLastAccessedLesson, lessonProgressList])
 
   const handleBackToHome = () => {
     setCurrentState("home")
@@ -84,6 +98,7 @@ export default function AppShell() {
       return (
         <ExplorePage
           onBack={handleBackToHome}
+          onStartExploration={handleStartExploration}
           onShowLibrary={handleShowLibrary}
           onShowLessons={handleShowLessons}
         />
@@ -91,8 +106,9 @@ export default function AppShell() {
 
     case "library":
       return (
-        <LibraryPage
+        <MyLibraryPage
           onBack={handleBackToHome}
+          onStartExploration={handleStartExploration}
           onShowExplore={handleShowExplore}
           onShowLessons={handleShowLessons}
         />
@@ -100,8 +116,9 @@ export default function AppShell() {
 
     case "lessons":
       return (
-        <LessonsPage
+        <MyLessonsPage
           onBack={handleBackToHome}
+          onStartExploration={handleStartExploration}
           onShowExplore={handleShowExplore}
           onShowLibrary={handleShowLibrary}
         />

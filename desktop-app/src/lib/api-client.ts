@@ -11,11 +11,17 @@ import {
   TaskStatus
 } from '../types/api'
 
-// Configuration
+// Configuration - Updated for Vite environment variables
 const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:8000'
 const DEFAULT_TIMEOUT = 30000 // 30 seconds
 const MAX_RETRIES = 3
 const RETRY_DELAY = 1000 // 1 second
+
+// Debug: Log the API configuration
+console.log(`🔧 API Configuration:`)
+console.log(`   Base URL: ${API_BASE_URL}`)
+console.log(`   Environment: ${(import.meta as any).env?.MODE || 'unknown'}`)
+console.log(`   VITE_API_URL: ${(import.meta as any).env?.VITE_API_URL || 'not set'}`)
 
 // Custom error class for API errors
 export class APIClientError extends Error {
@@ -67,6 +73,12 @@ async function apiRequest<T>(
 ): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`
   
+  // Debug logging
+  console.log(`🚀 API Request: ${options.method || 'GET'} ${url}`)
+  if (options.body) {
+    console.log(`📝 Request body:`, JSON.parse(options.body as string))
+  }
+  
   const defaultHeaders = {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
@@ -84,6 +96,8 @@ async function apiRequest<T>(
   try {
     const response = await fetch(url, config)
     
+    console.log(`📡 API Response: ${response.status} ${response.statusText}`)
+    
     if (!response.ok) {
       let errorMessage = `HTTP ${response.status}: ${response.statusText}`
       let errorDetails: any = null
@@ -91,6 +105,7 @@ async function apiRequest<T>(
       try {
         errorDetails = await response.json()
         errorMessage = errorDetails.detail || errorMessage
+        console.log(`❌ API Error details:`, errorDetails)
       } catch {
         // If response is not JSON, use status text
       }
@@ -101,7 +116,9 @@ async function apiRequest<T>(
     // Handle empty responses
     const contentType = response.headers.get('content-type')
     if (contentType && contentType.includes('application/json')) {
-      return await response.json()
+      const result = await response.json()
+      console.log(`✅ API Success:`, result)
+      return result
     } else {
       return {} as T
     }
@@ -112,6 +129,7 @@ async function apiRequest<T>(
     
     // Handle network errors, timeouts, etc.
     if (error instanceof Error) {
+      console.log(`🔥 Network Error:`, error.message)
       if (error.name === 'AbortError') {
         throw new APIClientError('Request timeout', 408)
       }
@@ -148,15 +166,22 @@ export class APIClient {
     )
   }
 
+  // Get flashcards by query ID
+  static async getFlashcards(queryId: string): Promise<ContentResponse> {
+    return withRetry(() =>
+      apiRequest<ContentResponse>(`${APIEndpoints.FLASHCARDS}/${queryId}`)
+    )
+  }
+
   // Get flashcards by query ID and lesson index
-  static async getFlashcards(queryId: string, lessonIndex: number = 0): Promise<ContentResponse> {
+  static async getFlashcardsByLesson(queryId: string, lessonIndex: number): Promise<ContentResponse> {
     return withRetry(() =>
       apiRequest<ContentResponse>(`${APIEndpoints.FLASHCARDS}/${queryId}/${lessonIndex}`)
     )
   }
 
   // Get quiz by query ID and lesson index
-  static async getQuiz(queryId: string, lessonIndex: number = 0): Promise<ContentResponse> {
+  static async getQuiz(queryId: string, lessonIndex: number): Promise<ContentResponse> {
     return withRetry(() =>
       apiRequest<ContentResponse>(`${APIEndpoints.QUIZ}/${queryId}/${lessonIndex}`)
     )
@@ -169,71 +194,25 @@ export class APIClient {
     )
   }
 
-  // Submit query and wait for completion with progress updates
-  static async submitQueryAndWait(
-    request: QueryRequest,
-    onProgress?: (progress: string) => void
-  ): Promise<{
-    queryId: string
-    lessons?: ContentResponse
-    relatedQuestions?: ContentResponse
-  }> {
-    onProgress?.('Submitting query...')
-    
-    // Submit the query
-    const queryResponse = await this.submitQuery(request)
-    
-    if (!queryResponse.success || !queryResponse.query_id) {
-      throw new APIClientError(queryResponse.message || 'Query submission failed', 400)
-    }
-
-    const queryId = queryResponse.query_id
-    onProgress?.('Processing lessons...')
-
-    // Wait for lessons to be ready
-    const lessons = await this.waitForContent(() => this.getLessons(queryId), onProgress)
-    
-    onProgress?.('Getting related questions...')
-    
-    // Get related questions (optional, don't fail if this fails)
-    let relatedQuestions: ContentResponse | undefined
-    try {
-      relatedQuestions = await this.getRelatedQuestions(queryId)
-    } catch (error) {
-      console.warn('Failed to get related questions:', error)
-    }
-
-    return {
-      queryId,
-      lessons,
-      relatedQuestions,
-    }
+  // Get recent lessons
+  static async getRecentLessons(limit: number = 50): Promise<ContentListResponse> {
+    return withRetry(() =>
+      apiRequest<ContentListResponse>(`${APIEndpoints.LESSONS}?limit=${limit}`)
+    )
   }
 
-  // Wait for content to be ready with retries
-  private static async waitForContent<T>(
-    contentFetcher: () => Promise<T>,
-    onProgress?: (progress: string) => void,
-    maxAttempts: number = 30,
-    delay: number = 2000
-  ): Promise<T> {
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        onProgress?.(`Processing... (${attempt}/${maxAttempts})`)
-        return await contentFetcher()
-      } catch (error) {
-        if (error instanceof APIClientError && error.statusCode === 404) {
-          // Content not ready yet, wait and retry
-          if (attempt < maxAttempts) {
-            await new Promise(resolve => setTimeout(resolve, delay))
-            continue
-          }
-        }
-        throw error
-      }
-    }
-    
-    throw new APIClientError('Content generation timeout', 408)
+  // Get recent flashcards
+  static async getRecentFlashcards(limit: number = 50): Promise<ContentListResponse> {
+    return withRetry(() =>
+      apiRequest<ContentListResponse>(`${APIEndpoints.FLASHCARDS}?limit=${limit}`)
+    )
+  }
+
+  // Get recent related questions
+  static async getRecentRelatedQuestions(limit: number = 50): Promise<ContentListResponse> {
+    return withRetry(() =>
+      apiRequest<ContentListResponse>(`${APIEndpoints.RELATED_QUESTIONS}?limit=${limit}`)
+    )
   }
 
   // Health check
@@ -241,10 +220,157 @@ export class APIClient {
     return apiRequest<HealthCheckResponse>(APIEndpoints.HEALTH)
   }
 
-  // Performance metrics
+  // Get performance metrics
   static async getPerformanceMetrics(): Promise<PerformanceMetrics> {
     return apiRequest<PerformanceMetrics>(APIEndpoints.PERFORMANCE)
   }
+
+  // Poll task status until completion
+  static async pollTaskStatus(
+    taskId: string,
+    onProgress?: (status: TaskStatusResponse) => void,
+    pollInterval: number = 2000,
+    maxPolls: number = 150 // 5 minutes max
+  ): Promise<TaskStatusResponse> {
+    let polls = 0
+    
+    while (polls < maxPolls) {
+      try {
+        const status = await this.getTaskStatus(taskId)
+        
+        if (onProgress) {
+          onProgress(status)
+        }
+
+        // Check if task is completed
+        if (status.status === TaskStatus.COMPLETED || 
+            status.status === TaskStatus.FAILED) {
+          return status
+        }
+
+        // Wait before next poll
+        await new Promise(resolve => setTimeout(resolve, pollInterval))
+        polls++
+      } catch (error) {
+        console.warn(`Polling attempt ${polls + 1} failed:`, error)
+        polls++
+        
+        if (polls >= maxPolls) {
+          throw new APIClientError('Task polling timeout', 408)
+        }
+        
+        await new Promise(resolve => setTimeout(resolve, pollInterval))
+      }
+    }
+
+    throw new APIClientError('Task polling timeout', 408)
+  }
+
+  // Submit query and wait for completion
+  static async submitQueryAndWait(
+    request: QueryRequest,
+    onProgress?: (message: string) => void
+  ): Promise<{ queryId: string; lessons?: ContentResponse; relatedQuestions?: ContentResponse }> {
+    // Submit initial query
+    const queryResponse = await this.submitQuery(request)
+    
+    if (!queryResponse.success || !queryResponse.query_id) {
+      throw new APIClientError('Query submission failed', 400)
+    }
+
+    const queryId = queryResponse.query_id
+    
+    if (onProgress) {
+      onProgress('Query submitted, generating content...')
+    }
+
+    // Wait a bit for tasks to be created
+    await new Promise(resolve => setTimeout(resolve, 1000))
+
+    // Try to get content (will fail initially, but we'll retry)
+    const results: { queryId: string; lessons?: ContentResponse; relatedQuestions?: ContentResponse } = {
+      queryId
+    }
+
+    // Poll for lessons and related questions
+    const maxAttempts = 30 // 1 minute with 2-second intervals
+    const maxRelatedQuestionsAttempts = 15 // 30 seconds max for related questions
+    let attempts = 0
+    let relatedQuestionsAttempts = 0
+
+    while (attempts < maxAttempts && !results.lessons) {
+      try {
+        if (!results.lessons) {
+          try {
+            results.lessons = await this.getLessons(queryId)
+            if (onProgress) {
+              onProgress('Lessons ready!')
+            }
+          } catch (error) {
+            // Expected to fail initially
+          }
+        }
+
+        if (!results.relatedQuestions && relatedQuestionsAttempts < maxRelatedQuestionsAttempts) {
+          try {
+            console.log(`🔍 Attempting to fetch related questions for queryId: ${queryId} (attempt ${relatedQuestionsAttempts + 1}/${maxRelatedQuestionsAttempts})`)
+            results.relatedQuestions = await this.getRelatedQuestions(queryId)
+            console.log('✅ Related questions fetched successfully')
+            if (onProgress) {
+              onProgress('Related questions ready!')
+            }
+          } catch (error) {
+            console.log(`⚠️ Related questions not ready yet (attempt ${relatedQuestionsAttempts + 1}):`, error instanceof APIClientError ? `${error.statusCode} - ${error.message}` : error)
+            // Expected to fail initially
+          }
+          relatedQuestionsAttempts++
+        }
+
+        if (!results.lessons || !results.relatedQuestions) {
+          await new Promise(resolve => setTimeout(resolve, 2000))
+          attempts++
+        }
+      } catch (error) {
+        console.warn(`Content polling attempt ${attempts + 1} failed:`, error)
+        attempts++
+        await new Promise(resolve => setTimeout(resolve, 2000))
+      }
+    }
+
+    // If lessons are ready but related questions aren't, try a few more times for related questions only
+    if (results.lessons && !results.relatedQuestions && relatedQuestionsAttempts < maxRelatedQuestionsAttempts) {
+      console.log('📚 Lessons ready! Continuing to try for related questions...')
+      const extraAttempts = Math.min(10, maxRelatedQuestionsAttempts - relatedQuestionsAttempts) // Up to 10 more attempts
+      
+      for (let i = 0; i < extraAttempts && !results.relatedQuestions; i++) {
+        try {
+          console.log(`🔍 Extra attempt for related questions (${i + 1}/${extraAttempts})`)
+          results.relatedQuestions = await this.getRelatedQuestions(results.queryId)
+          console.log('✅ Related questions finally ready!')
+          if (onProgress) {
+            onProgress('Related questions ready!')
+          }
+          break
+        } catch (error) {
+          console.log(`⚠️ Related questions still not ready:`, error instanceof APIClientError ? `${error.statusCode} - ${error.message}` : error)
+          if (i < extraAttempts - 1) {
+            await new Promise(resolve => setTimeout(resolve, 2000))
+          }
+        }
+      }
+    }
+
+    // If related questions still aren't ready, log a warning but continue
+    if (results.lessons && !results.relatedQuestions) {
+      console.warn('⚠️ Related questions timed out, but lessons are ready. Proceeding with partial results.')
+      if (onProgress) {
+        onProgress('Lessons ready! (Related questions may take longer)')
+      }
+    }
+
+    return results
+  }
 }
 
+// Export default instance
 export default APIClient 

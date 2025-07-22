@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react'
 import APIClient, { APIClientError } from '../lib/api-client'
-import { QueryRequest, ContentResponse } from '../types/api'
+import { QueryRequest, ContentResponse, ContentTaskType, TaskStatus } from '../types/api'
+import { useTaskTracker } from './use-task-tracker'
 
 interface QueryState {
   loading: boolean
@@ -13,6 +14,7 @@ interface QueryState {
 
 interface UseApiQueryReturn {
   state: QueryState
+  taskTracker: ReturnType<typeof useTaskTracker>
   submitQuery: (query: string, userId?: string) => Promise<void>
   clearError: () => void
   reset: () => void
@@ -28,26 +30,92 @@ export function useApiQuery(): UseApiQueryReturn {
     progress: null,
   })
 
+  const taskTracker = useTaskTracker()
+
   const submitQuery = useCallback(async (query: string, userId?: string) => {
     setState(prev => ({
       ...prev,
       loading: true,
       error: null,
-      progress: 'Submitting query...',
+      progress: 'Checking backend connection...',
     }))
 
     try {
+      // First check if backend is reachable
+      console.log('🔍 Checking backend health...')
+      try {
+        await APIClient.healthCheck()
+        console.log('✅ Backend is reachable')
+      } catch (healthError) {
+        console.error('❌ Backend health check failed:', healthError)
+        setState(prev => ({
+          ...prev,
+          progress: 'Backend connection failed. Is the server running?',
+        }))
+        // Continue anyway in case health endpoint doesn't exist
+      }
+
       const request: QueryRequest = {
         query,
         user_id: userId,
       }
 
+      setState(prev => ({
+        ...prev,
+        progress: 'Submitting query to backend...',
+      }))
+
+      // Start task tracking immediately
+      taskTracker.startTracking(`query-${Date.now()}`)
+
+      console.log('📤 Submitting query:', request)
+
+      // Use the original working method but with task tracker updates
       const result = await APIClient.submitQueryAndWait(request, (progress) => {
+        console.log('📊 Progress update:', progress)
         setState(prev => ({
           ...prev,
           progress,
         }))
+
+        // Update task tracker based on progress messages
+        if (progress.includes('submitted')) {
+          console.log('✅ Query submitted, updating task progress')
+          taskTracker.updateTaskProgress(ContentTaskType.LESSONS, 20)
+          taskTracker.updateTaskProgress(ContentTaskType.RELATED_QUESTIONS, 10)
+        } else if (progress.includes('Lessons ready')) {
+          console.log('✅ Lessons ready')
+          taskTracker.markTaskCompleted(ContentTaskType.LESSONS)
+          taskTracker.updateTaskProgress(ContentTaskType.RELATED_QUESTIONS, 50)
+          taskTracker.updateTaskProgress(ContentTaskType.FLASHCARDS, 10)
+          taskTracker.updateTaskProgress(ContentTaskType.QUIZ, 10)
+        } else if (progress.includes('Related questions ready')) {
+          console.log('✅ Related questions ready')
+          taskTracker.markTaskCompleted(ContentTaskType.RELATED_QUESTIONS)
+          taskTracker.updateTaskProgress(ContentTaskType.FLASHCARDS, 50)
+          taskTracker.updateTaskProgress(ContentTaskType.QUIZ, 50)
+        } else if (progress.includes('may take longer')) {
+          console.log('⚠️ Related questions timed out')
+          taskTracker.markTaskFailed(ContentTaskType.RELATED_QUESTIONS, 'Related questions are taking longer than expected')
+          taskTracker.updateTaskProgress(ContentTaskType.FLASHCARDS, 50)
+          taskTracker.updateTaskProgress(ContentTaskType.QUIZ, 50)
+        }
       })
+
+      console.log('🎉 Query completed:', result)
+
+      // Check if related questions failed to load
+      if (result.lessons && !result.relatedQuestions) {
+        console.log('⚠️ Query completed but related questions missing - marking as failed')
+        const relatedQuestionsTask = taskTracker.getTaskByType(ContentTaskType.RELATED_QUESTIONS)
+        if (relatedQuestionsTask?.status !== TaskStatus.COMPLETED && relatedQuestionsTask?.status !== TaskStatus.FAILED) {
+          taskTracker.markTaskFailed(ContentTaskType.RELATED_QUESTIONS, 'Related questions could not be generated')
+        }
+      }
+
+      // Mark remaining tasks as completed (they're generated on-demand)
+      taskTracker.markTaskCompleted(ContentTaskType.FLASHCARDS)
+      taskTracker.markTaskCompleted(ContentTaskType.QUIZ)
 
       setState(prev => ({
         ...prev,
@@ -59,10 +127,16 @@ export function useApiQuery(): UseApiQueryReturn {
       }))
 
     } catch (error) {
+      console.error('💥 Query submission failed:', error)
+      
       let errorMessage = 'An unexpected error occurred'
       
       if (error instanceof APIClientError) {
-        errorMessage = error.message
+        if (error.statusCode === 0) {
+          errorMessage = `Connection failed: ${error.message}. Is the backend server running on the correct port?`
+        } else {
+          errorMessage = `Backend error (${error.statusCode}): ${error.message}`
+        }
       } else if (error instanceof Error) {
         errorMessage = error.message
       }
@@ -73,8 +147,11 @@ export function useApiQuery(): UseApiQueryReturn {
         error: errorMessage,
         progress: null,
       }))
+
+      // Reset task tracker on error
+      taskTracker.reset()
     }
-  }, [])
+  }, [taskTracker])
 
   const clearError = useCallback(() => {
     setState(prev => ({
@@ -92,10 +169,12 @@ export function useApiQuery(): UseApiQueryReturn {
       relatedQuestions: null,
       progress: null,
     })
-  }, [])
+    taskTracker.reset()
+  }, [taskTracker])
 
   return {
     state,
+    taskTracker,
     submitQuery,
     clearError,
     reset,
@@ -114,12 +193,14 @@ export function useQueryContent(): UseQueryContentReturn {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const getFlashcards = useCallback(async (queryId: string, lessonIndex: number = 0): Promise<ContentResponse | null> => {
+  const getFlashcards = useCallback(async (queryId: string, lessonIndex?: number): Promise<ContentResponse | null> => {
     setLoading(true)
     setError(null)
 
     try {
-      const flashcards = await APIClient.getFlashcards(queryId, lessonIndex)
+      const flashcards = lessonIndex !== undefined 
+        ? await APIClient.getFlashcardsByLesson(queryId, lessonIndex)
+        : await APIClient.getFlashcards(queryId)
       setLoading(false)
       return flashcards
     } catch (error) {

@@ -8,6 +8,7 @@ import { Alert, AlertDescription } from "../components/ui/alert"
 import Navbar from "../components/Navbar"
 import { useQuiz } from "../hooks/use-quiz"
 import { TrueFalseQuestion, MultipleChoiceQuestion } from "../types/api"
+import { offlineManager } from "@/lib/offline-manager"
 
 interface QuizPageProps {
   flashcards?: any[] // Legacy prop, not used with API
@@ -101,7 +102,7 @@ export default function QuizPage({
     setShowResult(true)
   }
 
-  const handleNextQuestion = () => {
+  const handleNextQuestion = async () => {
     const totalQuestions = getTotalQuestions()
     
     if (currentQuestion < totalQuestions - 1) {
@@ -110,6 +111,24 @@ export default function QuizPage({
       setShowResult(false)
     } else {
       setQuizComplete(true)
+      
+      // Mark lesson as completed when quiz is finished
+      if (explanation?.queryId && explanation?.currentStepIndex !== undefined) {
+        try {
+          console.log('🎯 Quiz completed! Marking lesson as completed:', { 
+            queryId: explanation.queryId, 
+            lessonIndex: explanation.currentStepIndex 
+          })
+          await offlineManager.saveLessonProgress(explanation.queryId, explanation.currentStepIndex, true)
+          
+          // Also save quiz results for stats
+          const score = results.filter(r => r.correct).length
+          const percentage = Math.round((score / totalQuestions) * 100)
+          await offlineManager.saveQuizResult(explanation.queryId, percentage, totalQuestions, explanation.currentStepIndex)
+        } catch (error) {
+          console.error('Failed to save lesson completion:', error)
+        }
+      }
     }
   }
 

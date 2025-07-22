@@ -4,6 +4,8 @@ import { Input } from "../components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Plus, ChevronDown, ChevronUp, WifiOff } from "lucide-react"
 import Navbar from "../components/Navbar"
+import { offlineManager } from "@/lib/offline-manager"
+import LocalStorageDebugger from "../components/LocalStorageDebugger"
 
 const categories = [
   {
@@ -74,6 +76,9 @@ export default function HomePage({
   const [showCustomInput, setShowCustomInput] = useState(false)
   const [expandedCategory, setExpandedCategory] = useState<string>("")
   const [isOnline, setIsOnline] = useState(true)
+  
+  // Debug localStorage
+  const [debugInfo, setDebugInfo] = useState<string>("")
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true)
@@ -81,6 +86,45 @@ export default function HomePage({
 
     window.addEventListener("online", handleOnline)
     window.addEventListener("offline", handleOffline)
+
+    // Test localStorage functionality
+    const testLocalStorage = () => {
+      try {
+        // Test basic localStorage operations
+        const testKey = "localStorage_test_" + Date.now()
+        const testValue = { test: true, timestamp: Date.now() }
+        
+        localStorage.setItem(testKey, JSON.stringify(testValue))
+        const retrieved = localStorage.getItem(testKey)
+        
+        if (retrieved) {
+          const parsed = JSON.parse(retrieved)
+          if (parsed.test === true) {
+            setDebugInfo(`✅ localStorage working! Keys: ${localStorage.length}`)
+            
+            // List all keys for debugging
+            const allKeys = []
+            for (let i = 0; i < localStorage.length; i++) {
+              const key = localStorage.key(i)
+              if (key) allKeys.push(key)
+            }
+            console.log('All localStorage keys:', allKeys)
+            
+            // Clean up test
+            localStorage.removeItem(testKey)
+          } else {
+            setDebugInfo("❌ localStorage read/write mismatch")
+          }
+        } else {
+          setDebugInfo("❌ localStorage write failed")
+        }
+      } catch (error) {
+        setDebugInfo(`❌ localStorage error: ${error}`)
+        console.error('localStorage test failed:', error)
+      }
+    }
+
+    testLocalStorage()
 
     return () => {
       window.removeEventListener("online", handleOnline)
@@ -113,11 +157,23 @@ export default function HomePage({
     setCustomTopic("")
   }
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     if (showCustomInput && customTopic.trim()) {
-      onStartExploration(customTopic.trim())
+      try {
+        await offlineManager.saveTopicProgress(customTopic.trim())
+        onStartExploration(customTopic.trim())
+      } catch (error) {
+        console.error('Error saving topic progress:', error)
+        onStartExploration(customTopic.trim())
+      }
     } else if (selectedSubcategory) {
-      onStartExploration(selectedSubcategory, selectedCategory)
+      try {
+        await offlineManager.saveTopicProgress(selectedSubcategory, selectedCategory)
+        onStartExploration(selectedSubcategory, selectedCategory)
+      } catch (error) {
+        console.error('Error saving topic progress:', error)
+        onStartExploration(selectedSubcategory, selectedCategory)
+      }
     }
   }
 
@@ -157,6 +213,15 @@ export default function HomePage({
             <span className="text-sm">
               You're offline. Your progress is being saved locally and will sync when you're back online.
             </span>
+          </div>
+        </div>
+      )}
+      
+      {/* Debug Info - only show if there's debug info */}
+      {debugInfo && (
+        <div className="bg-blue-50 border-b border-blue-200 px-6 py-2">
+          <div className="max-w-7xl mx-auto flex items-center gap-2 text-blue-800">
+            <span className="text-sm font-mono">{debugInfo}</span>
           </div>
         </div>
       )}
@@ -280,6 +345,11 @@ export default function HomePage({
             </Button>
           </div>
         </div>
+      </div>
+      
+      {/* Debug Component - Remove in production */}
+      <div className="p-6">
+        <LocalStorageDebugger />
       </div>
     </div>
   )

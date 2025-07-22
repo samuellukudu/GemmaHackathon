@@ -245,28 +245,48 @@ class TaskQueue:
             print("Attempting manual parsing...")
             
             # Get the raw response from the error
+            raw_response = None
             if hasattr(e, 'lm_response'):
                 raw_response = e.lm_response
-                related_questions = manual_parse_related_questions(raw_response)
-                if related_questions:
-                    print(f"Manual parsing successful! Found {len(related_questions)} related questions.")
-                    
-                    processing_time = time.time() - start_time
-                    
-                    # Save to database
-                    await db.save_related_questions_history(
-                        query_id=query_id,
-                        questions_json=json.dumps([q.model_dump() for q in related_questions]),
-                        processing_time=processing_time
-                    )
-                    
-                    return {
-                        'related_questions': [q.model_dump() for q in related_questions],
-                        'processing_time': processing_time,
-                        'success': True
-                    }
-                else:
-                    print("Manual parsing also failed.")
+            else:
+                # Try to extract LM response from error message
+                error_str = str(e)
+                if "LM Response:" in error_str:
+                    try:
+                        start_marker = "LM Response: [[ ## questions ## ]]"
+                        end_marker = "[[ ## completed ## ]]"
+                        if start_marker in error_str and end_marker in error_str:
+                            start_idx = error_str.find(start_marker) + len(start_marker)
+                            end_idx = error_str.find(end_marker)
+                            raw_response = error_str[start_idx:end_idx].strip()
+                            print(f"Extracted raw response from error message")
+                    except Exception as extract_error:
+                        print(f"Failed to extract raw response from error: {extract_error}")
+            
+            if raw_response:
+                try:
+                    related_questions = manual_parse_related_questions(raw_response)
+                    if related_questions:
+                        print(f"Manual parsing successful! Found {len(related_questions)} related questions.")
+                        
+                        processing_time = time.time() - start_time
+                        
+                        # Save to database
+                        await db.save_related_questions_history(
+                            query_id=query_id,
+                            questions_json=json.dumps([q.model_dump() for q in related_questions]),
+                            processing_time=processing_time
+                        )
+                        
+                        return {
+                            'related_questions': [q.model_dump() for q in related_questions],
+                            'processing_time': processing_time,
+                            'success': True
+                        }
+                    else:
+                        print("Manual parsing returned no questions.")
+                except Exception as manual_error:
+                    print(f"Manual parsing failed with error: {manual_error}")
             else:
                 print("No raw response available for manual parsing.")
             

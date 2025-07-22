@@ -6,12 +6,15 @@ interface QuizState {
   loading: boolean
   error: string | null
   quiz: Quiz | null
+  queryId: string | null
+  lessonIndex: number | null
+  createdAt: string | null
   processingTime: number | null
 }
 
 interface UseQuizReturn {
   state: QuizState
-  fetchQuiz: (queryId: string, lessonIndex?: number) => Promise<void>
+  fetchQuiz: (queryId: string, lessonIndex: number) => Promise<void>
   clearError: () => void
   reset: () => void
   getAllQuestions: () => Array<{ type: 'true_false' | 'multiple_choice', question: TrueFalseQuestion | MultipleChoiceQuestion }>
@@ -23,26 +26,54 @@ export function useQuiz(): UseQuizReturn {
     loading: false,
     error: null,
     quiz: null,
+    queryId: null,
+    lessonIndex: null,
+    createdAt: null,
     processingTime: null,
   })
 
-  const fetchQuiz = useCallback(async (queryId: string, lessonIndex: number = 0) => {
+  const fetchQuiz = useCallback(async (queryId: string, lessonIndex: number) => {
     setState(prev => ({
       ...prev,
       loading: true,
       error: null,
+      queryId,
+      lessonIndex,
     }))
 
     try {
       const response: ContentResponse = await APIClient.getQuiz(queryId, lessonIndex)
       
-      // Parse the quiz content
-      const quiz: Quiz = response.content || { true_false_questions: [], multiple_choice_questions: [] }
+      // Validate that content has the expected structure
+      if (!response.content || typeof response.content !== 'object') {
+        throw new Error('Invalid response format: expected quiz object')
+      }
+
+      const quizContent = response.content as any
+
+      const quiz: Quiz = {
+        true_false_questions: Array.isArray(quizContent.true_false_questions) 
+          ? quizContent.true_false_questions.map((item: any) => ({
+              question: item.question || 'Unknown question',
+              correct_answer: Boolean(item.correct_answer),
+              explanation: item.explanation || 'No explanation available',
+            }))
+          : [],
+        multiple_choice_questions: Array.isArray(quizContent.multiple_choice_questions)
+          ? quizContent.multiple_choice_questions.map((item: any) => ({
+              question: item.question || 'Unknown question',
+              options: Array.isArray(item.options) ? item.options : [],
+              correct_answer: typeof item.correct_answer === 'number' ? item.correct_answer : 0,
+              explanation: item.explanation || 'No explanation available',
+            }))
+          : [],
+      }
 
       setState(prev => ({
         ...prev,
         loading: false,
         quiz,
+        createdAt: response.created_at,
         processingTime: response.processing_time || null,
       }))
 
@@ -50,7 +81,11 @@ export function useQuiz(): UseQuizReturn {
       let errorMessage = 'Failed to fetch quiz'
       
       if (error instanceof APIClientError) {
-        errorMessage = error.message
+        if (error.statusCode === 404) {
+          errorMessage = 'Quiz not found. It may still be generating.'
+        } else {
+          errorMessage = error.message
+        }
       } else if (error instanceof Error) {
         errorMessage = error.message
       }
@@ -75,6 +110,9 @@ export function useQuiz(): UseQuizReturn {
       loading: false,
       error: null,
       quiz: null,
+      queryId: null,
+      lessonIndex: null,
+      createdAt: null,
       processingTime: null,
     })
   }, [])

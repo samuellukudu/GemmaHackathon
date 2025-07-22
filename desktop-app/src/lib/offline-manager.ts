@@ -2,6 +2,7 @@ import { offlineDB, type Topic, type QuizResult, type UserStats, type Explanatio
 
 class OfflineManager {
   private isOnline = true
+  private initialized = false
 
   constructor() {
     if (typeof window !== "undefined") {
@@ -14,6 +15,28 @@ class OfflineManager {
         this.isOnline = false
         this.handleOffline()
       })
+      
+      // Initialize the database
+      this.init()
+    }
+  }
+
+  private async init() {
+    if (this.initialized) return
+    
+    try {
+      await offlineDB.init()
+      this.initialized = true
+      console.log('OfflineManager initialized successfully')
+    } catch (error) {
+      console.error('Failed to initialize OfflineManager:', error)
+      // Continue without database - will fall back to localStorage only
+    }
+  }
+
+  private async ensureInitialized() {
+    if (!this.initialized) {
+      await this.init()
     }
   }
 
@@ -56,6 +79,8 @@ class OfflineManager {
   }
 
   async saveTopicProgress(topic: string, category = "general"): Promise<void> {
+    await this.ensureInitialized()
+    
     try {
       const topicData: Topic = {
         id: this.generateId(),

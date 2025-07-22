@@ -9,6 +9,8 @@ import Navbar from "../components/Navbar"
 import { useApiQuery } from "../hooks/use-api-query"
 import { useLessons } from "../hooks/use-lessons"
 import { Lesson } from "../types/api"
+import TaskTracker from "../components/TaskTracker"
+import { offlineManager } from "@/lib/offline-manager"
 
 interface ExplanationPageProps {
   topic: string
@@ -28,8 +30,23 @@ export default function ExplanationPage({
   onShowLibrary = () => {},
 }: Partial<ExplanationPageProps>) {
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set())
-  const { state: apiState, submitQuery, clearError } = useApiQuery()
+  const { state: apiState, taskTracker, submitQuery, clearError } = useApiQuery()
   const { state: lessonsState, fetchLessons, clearError: clearLessonsError } = useLessons()
+
+  const loadCompletedSteps = async () => {
+    if (apiState.queryId) {
+      try {
+        const progress = await offlineManager.getLessonProgress(apiState.queryId)
+        const completedStepIndices = Object.entries(progress)
+          .filter(([_, data]) => data.completed)
+          .map(([index]) => parseInt(index))
+        setCompletedSteps(new Set(completedStepIndices))
+        console.log('📚 Loaded completed steps:', completedStepIndices)
+      } catch (error) {
+        console.warn('Failed to load completed steps:', error)
+      }
+    }
+  }
 
   const generateExplanation = useCallback(async () => {
     // First, try to get lessons from API if we have a query ID
@@ -56,6 +73,31 @@ export default function ExplanationPage({
   useEffect(() => {
     generateExplanation()
   }, [generateExplanation])
+
+  // Load completed steps when queryId changes
+  useEffect(() => {
+    loadCompletedSteps()
+  }, [apiState.queryId])
+
+  // Track lesson access when component mounts or step changes
+  useEffect(() => {
+    if (apiState.queryId && currentStepIndex !== undefined) {
+      // Save lesson access progress (not completed, just accessed)
+      console.log('💾 Saving lesson progress:', { queryId: apiState.queryId, lessonIndex: currentStepIndex })
+      offlineManager.saveLessonProgress(apiState.queryId, currentStepIndex, false)
+      
+      // Save topic info for later reference (only for user queries)
+      if (lessonsState.lessons.length > 0 && isUserQuery) {
+        console.log('📝 Saving topic info:', { 
+          queryId: apiState.queryId, 
+          topic, 
+          totalLessons: lessonsState.lessons.length, 
+          isUserQuery 
+        })
+        offlineManager.saveTopicInfo(apiState.queryId, topic, lessonsState.lessons.length, isUserQuery)
+      }
+    }
+  }, [apiState.queryId, currentStepIndex, topic, lessonsState.lessons.length, isUserQuery])
 
   // Watch for API state changes and fetch lessons (only for fresh queries)
   useEffect(() => {
@@ -86,41 +128,32 @@ export default function ExplanationPage({
     if ("speechSynthesis" in window) {
       const utterance = new SpeechSynthesisUtterance(text)
       utterance.rate = 0.8
-      utterance.pitch = 1
       speechSynthesis.speak(utterance)
     }
   }
 
-  const createFlashcardFromLesson = (lesson: Lesson, index: number) => {
-    const lessonFlashcards = [
-      {
-        id: 1,
-        front: `What is ${lesson.title}?`,
-        back: lesson.overview,
-        category: lesson.title,
-      },
-      ...lesson.key_concepts.map((concept: string, idx: number) => ({
-        id: idx + 2,
-        front: `What is the key concept: ${concept}?`,
-        back: lesson.examples[idx] || `This relates to ${lesson.title}`,
-        category: lesson.title,
-      })),
-    ]
-
-    const lessonExplanation = {
-      topic: `${topic} - Lesson ${index + 1}: ${lesson.title}`,
-      currentStepIndex: index,
-      totalSteps: lessonsState.lessons.length,
-      lesson: lesson,
-      flashcards: lessonFlashcards,
-      parentLessons: lessonsState.lessons,
-      queryId: apiState.queryId,
+  const createFlashcardFromLesson = async (lesson: Lesson, stepIndex: number) => {
+    // Mark this lesson as completed when user starts learning it
+    if (apiState.queryId) {
+      console.log('✅ Marking lesson as completed:', { queryId: apiState.queryId, lessonIndex: stepIndex })
+      await offlineManager.saveLessonProgress(apiState.queryId, stepIndex, true)
+      setCompletedSteps(prev => new Set([...prev, stepIndex]))
     }
 
-    onGenerateFlashcards(lessonExplanation)
+    // Extract meaningful data for flashcard generation
+    const explanation = {
+      queryId: apiState.queryId,
+      currentStepIndex: stepIndex,
+      lesson: lesson,
+      topic: topic,
+      totalSteps: lessonsState.lessons.length
+    }
+    
+    onGenerateFlashcards(explanation)
   }
 
-  if (apiState.loading || lessonsState.loading || (!lessonsState.lessons.length && !apiState.error && !lessonsState.error)) {
+  // Show task tracking during content generation
+  if (apiState.loading || taskTracker.state.tasks.length > 0 && !taskTracker.state.isComplete) {
     return (
       <div className="min-h-screen bg-white">
         <Navbar 
@@ -131,19 +164,66 @@ export default function ExplanationPage({
 
         <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
           <div className="max-w-4xl mx-auto">
-            <div className="text-center py-20">
-              <Brain className="h-16 w-16 text-indigo-600 mx-auto mb-4 animate-pulse" />
-              <h2 className="text-2xl font-semibold text-gray-900 mb-2">
-                {apiState.progress || lessonsState.loading ? 'Loading lessons...' : 'Generating Explanation...'}
-              </h2>
-              <p className="text-gray-600">Creating a step-by-step breakdown of "{topic}"</p>
-              {apiState.progress && (
-                <div className="mt-4 max-w-md mx-auto">
-                  <Progress value={33} className="h-2" />
-                  <p className="text-sm text-gray-500 mt-2">{apiState.progress}</p>
-                </div>
-              )}
+            {/* Header */}
+            <div className="flex items-center gap-3 mb-6">
+              <Button variant="outline" onClick={onBack} className="h-10 w-10 p-0 bg-transparent">
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+              <div className="flex-1 min-w-0">
+                <h1 className="text-xl font-bold text-gray-900 capitalize truncate">{topic}</h1>
+                <p className="text-sm text-gray-600">Generating comprehensive learning content...</p>
+              </div>
             </div>
+
+            {/* Task Tracker - The main feature! */}
+            <div className="flex justify-center">
+              <TaskTracker
+                tasks={taskTracker.state.tasks}
+                overallProgress={taskTracker.state.overallProgress}
+                isComplete={taskTracker.state.isComplete}
+                hasErrors={taskTracker.state.hasErrors}
+                startTime={taskTracker.state.startTime}
+                completedTime={taskTracker.state.completedTime}
+                className="mb-6"
+              />
+            </div>
+
+            {/* Helpful information */}
+            <Card className="max-w-2xl mx-auto">
+              <CardContent className="p-6 text-center">
+                <Brain className="h-12 w-12 text-indigo-600 mx-auto mb-3" />
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                  Creating Your Learning Experience
+                </h3>
+                <p className="text-gray-600 text-sm mb-4">
+                  Our AI is generating personalized lessons, flashcards, quizzes, and related questions 
+                  to help you master "{topic}". You can see the progress above.
+                </p>
+                
+                {/* Show current progress message if available */}
+                {apiState.progress && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                    <p className="text-blue-800 text-sm font-medium">
+                      {apiState.progress}
+                    </p>
+                  </div>
+                )}
+
+                {/* Task completion summary */}
+                {taskTracker.state.tasks.length > 0 && (
+                  <div className="mt-4 text-xs text-gray-500">
+                    <p>
+                      {taskTracker.getCompletedTasks().length} of {taskTracker.state.tasks.length} tasks completed
+                    </p>
+                    {taskTracker.state.hasErrors && (
+                      <p className="text-red-600 mt-1">
+                        Some tasks encountered issues, but we'll continue with available content.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </div>
         </div>
       </div>
@@ -180,6 +260,7 @@ export default function ExplanationPage({
               <Button onClick={() => {
                 clearError()
                 clearLessonsError()
+                taskTracker.reset()
                 generateExplanation()
               }}>
                 Try Again
