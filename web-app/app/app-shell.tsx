@@ -16,7 +16,7 @@ export default function AppShell() {
   const [currentFlashcards, setCurrentFlashcards] = useState<any[]>([])
   const [currentStepIndex, setCurrentStepIndex] = useState(0)
   const [isUserQuery, setIsUserQuery] = useState(true) // Track if current topic is a user query
-  const { getLastAccessedLesson, lessonProgressList } = useLessonProgress()
+  const { getLastAccessedLesson, lessonProgressList, markLessonAccessed } = useLessonProgress()
 
   const handleStartExploration = useCallback(async (topic: string, category?: string, fromLessonContinue: boolean = false) => {
     setCurrentTopic(topic)
@@ -87,6 +87,19 @@ export default function AppShell() {
     setCurrentFlashcards([])
   }
 
+  const handleStepNavigation = useCallback(async (stepIndex: number) => {
+    setCurrentStepIndex(stepIndex)
+    setCurrentState("explanation")
+    setCurrentExplanation(null)
+    setCurrentFlashcards([])
+    
+    // Track lesson access for progress tracking
+    const existingLesson = lessonProgressList.find(lesson => lesson.topic === currentTopic)
+    if (existingLesson) {
+      await markLessonAccessed(existingLesson.queryId, stepIndex)
+    }
+  }, [currentTopic, lessonProgressList, markLessonAccessed])
+
   switch (currentState) {
     case "home":
       return (
@@ -137,6 +150,7 @@ export default function AppShell() {
           onBack={handleBackToHome}
           onGenerateFlashcards={handleGenerateFlashcards}
           onShowLibrary={handleShowLibraryFromStudy}
+          onStepNavigation={handleStepNavigation}
         />
       )
 

@@ -19,6 +19,7 @@ interface ExplanationPageProps {
   onBack: () => void
   onGenerateFlashcards: (explanation: any) => void
   onShowLibrary: () => void
+  onStepNavigation?: (stepIndex: number) => void
 }
 
 // Remove old interfaces - we'll use the Lesson interface from types/api.ts
@@ -30,6 +31,7 @@ export default function ExplanationPage({
   onBack,
   onGenerateFlashcards,
   onShowLibrary,
+  onStepNavigation,
 }: ExplanationPageProps) {
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set())
   const { state: apiState, submitQuery, clearError } = useApiQuery()
@@ -112,7 +114,13 @@ export default function ExplanationPage({
 
 
 
-  const createFlashcardFromLesson = (lesson: Lesson, index: number) => {
+  const createFlashcardFromLesson = async (lesson: Lesson, index: number) => {
+    // Mark this lesson as completed when user starts learning it
+    if (apiState.queryId) {
+      await offlineManager.saveLessonProgress(apiState.queryId, index, true)
+      setCompletedSteps(prev => new Set([...prev, index]))
+    }
+
     // Create flashcards for this specific lesson and go to flashcards page
     const lessonFlashcards = [
       {
@@ -370,12 +378,13 @@ export default function ExplanationPage({
                 {lessonsState.lessons.map((lesson, index) => (
                   <div
                     key={index}
-                    className={`flex flex-col items-center gap-1 p-2 rounded-lg border text-center ${
+                    onClick={() => onStepNavigation?.(index)}
+                    className={`flex flex-col items-center gap-1 p-2 rounded-lg border text-center cursor-pointer hover:shadow-md transition-all duration-200 ${
                       index === currentStepIndex
-                        ? "border-indigo-500 bg-indigo-50"
+                        ? "border-indigo-500 bg-indigo-50 hover:bg-indigo-100"
                         : completedSteps.has(index)
-                          ? "border-green-500 bg-green-50"
-                          : "border-gray-200 bg-gray-50"
+                          ? "border-green-500 bg-green-50 hover:bg-green-100"
+                          : "border-gray-200 bg-gray-50 hover:bg-gray-100"
                     }`}
                   >
                     <Badge variant={index === currentStepIndex ? "default" : "secondary"} className="text-xs">
