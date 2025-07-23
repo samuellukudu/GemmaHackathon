@@ -61,10 +61,10 @@ export default function MyLibraryPage({
       />
 
       {/* Main Content */}
-      <div className="max-w-6xl mx-auto px-6 py-16">
-        <div className="text-center mb-12">
-          <h1 className="text-4xl font-bold text-gray-900 mb-4">My Library</h1>
-          <p className="text-lg text-gray-600 max-w-2xl mx-auto">Your learning progress and achievements</p>
+      <div className="max-w-6xl mx-auto px-6 py-8">
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">My Library</h1>
+          <p className="text-base text-gray-600 max-w-2xl mx-auto">Your learning progress and achievements</p>
         </div>
 
         {loading ? (
@@ -74,8 +74,8 @@ export default function MyLibraryPage({
           </div>
         ) : (
           <>
-            {/* Stats Overview */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
+            {/* Stats Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium">Topics Explored</CardTitle>
@@ -173,161 +173,9 @@ export default function MyLibraryPage({
               </Card>
             </div>
 
-            {/* Quick Actions */}
-            <Card className="mb-12">
-              <CardHeader>
-                <CardTitle>Quick Actions</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <Button onClick={onShowLessons} variant="outline" className="h-16 flex flex-col gap-2 bg-transparent">
-                    <BookOpen className="h-6 w-6" />
-                    <span>Continue Lessons</span>
-                  </Button>
-                  <Button onClick={onShowExplore} variant="outline" className="h-16 flex flex-col gap-2 bg-transparent">
-                    <Target className="h-6 w-6" />
-                    <span>Explore Topics</span>
-                  </Button>
-                  <Button onClick={onBack} variant="outline" className="h-16 flex flex-col gap-2 bg-transparent">
-                    <Plus className="h-6 w-6" />
-                    <span>Start New Topic</span>
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
 
-            {/* Recent Quiz Results */}
-            {userStats.recentQuizResults && userStats.recentQuizResults.length > 0 && (
-              <Card className="mb-12">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Brain className="h-5 w-5" />
-                    Recent Quiz Results
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {userStats.recentQuizResults.map((result, index) => (
-                      <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                        <div className="flex-1">
-                          <h4 className="font-medium text-gray-900 truncate">{result.topic}</h4>
-                          <p className="text-sm text-gray-500">{result.date}</p>
-                        </div>
-                        <Badge 
-                          variant={result.score >= 80 ? "default" : result.score >= 60 ? "secondary" : "destructive"}
-                          className="text-sm"
-                        >
-                          {result.score}%
-                        </Badge>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
 
-            {/* Achievements */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Trophy className="h-5 w-5" />
-                  Achievements
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div
-                    className={`p-4 rounded-lg border ${userStats.totalTopicsExplored >= 1 ? "bg-yellow-50 border-yellow-200" : "bg-gray-50 border-gray-200"}`}
-                  >
-                    <div className="flex items-center gap-2 mb-2">
-                      <Trophy
-                        className={`h-5 w-5 ${userStats.totalTopicsExplored >= 1 ? "text-yellow-600" : "text-gray-400"}`}
-                      />
-                      <span className="font-medium">First Explorer</span>
-                    </div>
-                    <p className="text-sm text-gray-600">Complete your first topic</p>
-                    {userStats.totalTopicsExplored >= 1 && (
-                      <Badge className="mt-2" variant="secondary">Unlocked!</Badge>
-                    )}
-                  </div>
 
-                  <div
-                    className={`p-4 rounded-lg border ${userStats.totalQuizzesTaken >= 5 ? "bg-blue-50 border-blue-200" : "bg-gray-50 border-gray-200"}`}
-                  >
-                    <div className="flex items-center gap-2 mb-2">
-                      <Trophy
-                        className={`h-5 w-5 ${userStats.totalQuizzesTaken >= 5 ? "text-blue-600" : "text-gray-400"}`}
-                      />
-                      <span className="font-medium">Quiz Master</span>
-                    </div>
-                    <p className="text-sm text-gray-600">Take 5 quizzes</p>
-                    {userStats.totalQuizzesTaken >= 5 && (
-                      <Badge className="mt-2" variant="secondary">Unlocked!</Badge>
-                    )}
-                  </div>
-
-                  <div
-                    className={`p-4 rounded-lg border ${userStats.streak >= 7 ? "bg-green-50 border-green-200" : "bg-gray-50 border-gray-200"}`}
-                  >
-                    <div className="flex items-center gap-2 mb-2">
-                      <Trophy
-                        className={`h-5 w-5 ${userStats.streak >= 7 ? "text-green-600" : "text-gray-400"}`}
-                      />
-                      <span className="font-medium">Week Warrior</span>
-                    </div>
-                    <p className="text-sm text-gray-600">Study for 7 days straight</p>
-                    {userStats.streak >= 7 && (
-                      <Badge className="mt-2" variant="secondary">Unlocked!</Badge>
-                    )}
-                  </div>
-
-                  <div
-                    className={`p-4 rounded-lg border ${userStats.totalTopicsExplored >= 10 ? "bg-purple-50 border-purple-200" : "bg-gray-50 border-gray-200"}`}
-                  >
-                    <div className="flex items-center gap-2 mb-2">
-                      <Trophy
-                        className={`h-5 w-5 ${userStats.totalTopicsExplored >= 10 ? "text-purple-600" : "text-gray-400"}`}
-                      />
-                      <span className="font-medium">Knowledge Seeker</span>
-                    </div>
-                    <p className="text-sm text-gray-600">Explore 10 different topics</p>
-                    {userStats.totalTopicsExplored >= 10 && (
-                      <Badge className="mt-2" variant="secondary">Unlocked!</Badge>
-                    )}
-                  </div>
-
-                  <div
-                    className={`p-4 rounded-lg border ${userStats.averageQuizScore >= 90 ? "bg-red-50 border-red-200" : "bg-gray-50 border-gray-200"}`}
-                  >
-                    <div className="flex items-center gap-2 mb-2">
-                      <Trophy
-                        className={`h-5 w-5 ${userStats.averageQuizScore >= 90 ? "text-red-600" : "text-gray-400"}`}
-                      />
-                      <span className="font-medium">Perfectionist</span>
-                    </div>
-                    <p className="text-sm text-gray-600">Maintain 90%+ quiz average</p>
-                    {userStats.averageQuizScore >= 90 && (
-                      <Badge className="mt-2" variant="secondary">Unlocked!</Badge>
-                    )}
-                  </div>
-
-                  <div
-                    className={`p-4 rounded-lg border ${userStats.totalStudyTime >= 300 ? "bg-indigo-50 border-indigo-200" : "bg-gray-50 border-gray-200"}`}
-                  >
-                    <div className="flex items-center gap-2 mb-2">
-                      <Trophy
-                        className={`h-5 w-5 ${userStats.totalStudyTime >= 300 ? "text-indigo-600" : "text-gray-400"}`}
-                      />
-                      <span className="font-medium">Time Scholar</span>
-                    </div>
-                    <p className="text-sm text-gray-600">Study for 5+ hours total</p>
-                    {userStats.totalStudyTime >= 300 && (
-                      <Badge className="mt-2" variant="secondary">Unlocked!</Badge>
-                    )}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
           </>
         )}
       </div>

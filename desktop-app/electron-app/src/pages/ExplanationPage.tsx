@@ -285,163 +285,141 @@ export default function ExplanationPage({
         onNavigate={handleNavigate}
       />
 
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-3">
-        <div className="max-w-4xl mx-auto h-screen flex flex-col">
-          {/* Header - Compact */}
-          <div className="flex items-center gap-3 mb-4">
-            <Button variant="outline" onClick={onBack} className="h-10 w-10 p-0 bg-transparent">
+      <div className="h-screen bg-gradient-to-br from-blue-50 to-indigo-100 overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 bg-white/80 backdrop-blur-sm border-b">
+          <div className="flex items-center gap-3">
+            <Button variant="outline" onClick={onBack} className="h-9 w-9 p-0">
               <ArrowLeft className="h-4 w-4" />
             </Button>
-            <div className="flex-1 min-w-0">
-              <h1 className="text-xl font-bold text-gray-900 capitalize truncate">{topic}</h1>
-              <p className="text-sm text-gray-600 truncate">
-                Lesson {currentStepIndex + 1} of {lessonsState.lessons.length}: {currentLesson?.title}
+            <div>
+              <h1 className="text-lg font-bold text-gray-900 capitalize">{topic}</h1>
+              <p className="text-sm text-gray-600">
+                Lesson {currentStepIndex + 1} of {lessonsState.lessons.length}
               </p>
             </div>
-
-            <Button
-              variant="outline"
-              onClick={onShowLibrary}
-              className="h-10 w-10 p-0 bg-transparent"
-              title="View Library & Stats"
-            >
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="text-right">
+              <div className="text-xs text-gray-500">Progress</div>
+              <div className="text-sm font-medium">{currentStepIndex + 1}/{lessonsState.lessons.length}</div>
+            </div>
+            <Progress value={((currentStepIndex + 1) / lessonsState.lessons.length) * 100} className="w-24 h-2" />
+            <Button variant="outline" onClick={onShowLibrary} className="h-9 w-9 p-0">
               <BarChart3 className="h-4 w-4" />
             </Button>
           </div>
+        </div>
 
-          {/* Progress Bars - Compact */}
-          <div className="space-y-3 mb-4">
-            <div>
-              <div className="flex justify-between items-center mb-1">
-                <span className="text-xs font-medium text-gray-700">Current Step</span>
-                <span className="text-xs text-gray-600">
-                  {currentStepIndex + 1}/{lessonsState.lessons.length}
-                </span>
-              </div>
-              <Progress value={((currentStepIndex + 1) / lessonsState.lessons.length) * 100} className="h-1.5" />
+        {/* Main Content - Horizontal Split */}
+        <div className="flex h-[calc(100vh-80px)]">
+          {/* Left Side - Lesson Navigation */}
+          <div className="w-80 bg-white/50 backdrop-blur-sm border-r p-4 overflow-y-auto">
+            <h3 className="font-semibold text-gray-900 mb-4">All Lessons</h3>
+            <div className="space-y-2">
+              {lessonsState.lessons.map((lesson, index) => (
+                <div
+                  key={index}
+                  onClick={() => onStepNavigation(index)}
+                  className={`p-3 rounded-lg border cursor-pointer transition-all duration-200 ${
+                    index === currentStepIndex
+                      ? "border-indigo-500 bg-indigo-50 shadow-sm"
+                      : completedSteps.has(index)
+                        ? "border-green-300 bg-green-50 hover:bg-green-100"
+                        : "border-gray-200 bg-white hover:bg-gray-50"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <Badge 
+                      variant={index === currentStepIndex ? "default" : "secondary"} 
+                      className="text-xs"
+                    >
+                      {index + 1}
+                    </Badge>
+                    {completedSteps.has(index) && <CheckCircle className="h-4 w-4 text-green-500" />}
+                    {index === currentStepIndex && <Badge className="text-xs bg-indigo-600">Current</Badge>}
+                  </div>
+                  <h4 className="font-medium text-sm text-gray-900 mb-1">{lesson.title}</h4>
+                  <p className="text-xs text-gray-600 line-clamp-2">{lesson.overview}</p>
+                </div>
+              ))}
             </div>
+
+            {/* Summary at bottom */}
+            {isLastStep && lessonsState.processingTime && (
+              <div className="mt-6 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <h4 className="font-medium text-blue-900 mb-1">🎉 Congratulations!</h4>
+                <p className="text-sm text-blue-800">
+                  You've completed all {lessonsState.lessons.length} lessons about {topic}!
+                </p>
+                <p className="text-xs text-blue-600 mt-1">
+                  Generated in {lessonsState.processingTime.toFixed(2)} seconds
+                </p>
+              </div>
+            )}
           </div>
 
-          {/* Main Content - Flexible Height */}
-          <div className="flex-1 flex flex-col min-h-0">
-            {/* Overview (only show on first lesson) - Compact */}
-            {currentStepIndex === 0 && lessonsState.lessons.length > 0 && (
-              <Card className="mb-3">
-                <CardContent className="p-4">
-                  <p className="text-sm text-gray-700 leading-relaxed">
-                    AI-generated lessons for: {topic}
-                  </p>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Current Lesson - Main Content */}
+          {/* Right Side - Current Lesson */}
+          <div className="flex-1 p-6 overflow-y-auto">
             {currentLesson && (
-              <Card className="mb-3 ring-2 ring-indigo-500 shadow-lg flex-1 flex flex-col">
-                <CardHeader className="pb-1">
-                  <div className="flex items-center gap-2">
-                    <Badge variant="secondary" className="text-sm px-2 py-1">
+              <div className="max-w-2xl mx-auto">
+                <div className="mb-6">
+                  <div className="flex items-center gap-3 mb-4">
+                    <Badge variant="default" className="text-sm px-3 py-1">
                       Lesson {currentStepIndex + 1}
                     </Badge>
-                    <CardTitle className="text-lg">{currentLesson.title}</CardTitle>
-                    {completedSteps.has(currentStepIndex) && <CheckCircle className="h-5 w-5 text-green-500 ml-auto" />}
-
-                  </div>
-                </CardHeader>
-                <CardContent className="flex-1 flex flex-col justify-between py-3">
-                  <div>
-                    <p className="text-gray-700 mb-3 text-sm leading-relaxed">{currentLesson.overview}</p>
-                    
-                    {/* Key Concepts */}
-                    {currentLesson.key_concepts.length > 0 && (
-                      <div className="bg-indigo-50 p-3 rounded-lg mb-3">
-                        <h4 className="text-indigo-800 font-medium text-sm mb-2">🔑 Key Concepts:</h4>
-                        <ul className="text-indigo-700 text-sm space-y-1">
-                          {currentLesson.key_concepts.map((concept: string, idx: number) => (
-                            <li key={idx} className="flex items-start">
-                              <span className="mr-2">•</span>
-                              <span>{concept}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {/* Examples */}
-                    {currentLesson.examples.length > 0 && (
-                      <div className="bg-green-50 p-3 rounded-lg mb-2">
-                        <h4 className="text-green-800 font-medium text-sm mb-2">💡 Examples:</h4>
-                        <ul className="text-green-700 text-sm space-y-1">
-                          {currentLesson.examples.map((example: string, idx: number) => (
-                            <li key={idx} className="flex items-start">
-                              <span className="mr-2">•</span>
-                              <span>{example}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                  <Button
-                    onClick={() => createFlashcardFromLesson(currentLesson, currentStepIndex)}
-                    variant="outline"
-                    className="w-full h-10 text-sm"
-                  >
-                    <BookOpen className="h-4 w-4 mr-2" />
-                    Start Learning This Lesson
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Lessons Overview - Compact */}
-            <Card className="mb-3">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-lg">All Lessons</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-5 gap-2">
-                  {lessonsState.lessons.map((lesson, index) => (
-                    <div
-                      key={index}
-                      onClick={() => onStepNavigation(index)}
-                      className={`flex flex-col items-center gap-1 p-2 rounded-lg border text-center cursor-pointer hover:shadow-md transition-all duration-200 ${
-                        index === currentStepIndex
-                          ? "border-indigo-500 bg-indigo-50 hover:bg-indigo-100"
-                          : completedSteps.has(index)
-                            ? "border-green-500 bg-green-50 hover:bg-green-100"
-                            : "border-gray-200 bg-gray-50 hover:bg-gray-100"
-                      }`}
-                    >
-                      <Badge variant={index === currentStepIndex ? "default" : "secondary"} className="text-xs">
-                        {index + 1}
+                    {completedSteps.has(currentStepIndex) && (
+                      <Badge variant="secondary" className="text-sm px-3 py-1 bg-green-100 text-green-800">
+                        ✓ Completed
                       </Badge>
-                      <span className="text-xs font-medium truncate w-full" title={lesson.title}>
-                        {lesson.title}
-                      </span>
-                      {completedSteps.has(index) && <CheckCircle className="h-3 w-3 text-green-500" />}
-                      {index === currentStepIndex && <Badge className="text-xs px-1 py-0">Current</Badge>}
-                    </div>
-                  ))}
+                    )}
+                  </div>
+                  <h2 className="text-2xl font-bold text-gray-900 mb-3">{currentLesson.title}</h2>
+                  <p className="text-gray-700 leading-relaxed mb-6">{currentLesson.overview}</p>
                 </div>
-              </CardContent>
-            </Card>
 
-            {/* Summary (only show on last lesson) - Compact */}
-            {isLastStep && lessonsState.processingTime && (
-              <Card className="mb-3">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-lg">Summary</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-gray-700 leading-relaxed">
-                    You've completed all {lessonsState.lessons.length} lessons about {topic}!
-                  </p>
-                  <p className="text-xs text-gray-500 mt-2">
-                    Generated in {lessonsState.processingTime.toFixed(2)} seconds
-                  </p>
-                </CardContent>
-              </Card>
+                {/* Key Concepts */}
+                {currentLesson.key_concepts.length > 0 && (
+                  <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4 mb-6">
+                    <h3 className="text-indigo-900 font-semibold mb-3 flex items-center">
+                      🔑 <span className="ml-2">Key Concepts</span>
+                    </h3>
+                    <ul className="space-y-2">
+                      {currentLesson.key_concepts.map((concept: string, idx: number) => (
+                        <li key={idx} className="flex items-start text-indigo-800">
+                          <span className="w-2 h-2 bg-indigo-400 rounded-full mt-2 mr-3 flex-shrink-0"></span>
+                          <span>{concept}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Examples */}
+                {currentLesson.examples.length > 0 && (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
+                    <h3 className="text-green-900 font-semibold mb-3 flex items-center">
+                      💡 <span className="ml-2">Examples</span>
+                    </h3>
+                    <ul className="space-y-2">
+                      {currentLesson.examples.map((example: string, idx: number) => (
+                        <li key={idx} className="flex items-start text-green-800">
+                          <span className="w-2 h-2 bg-green-400 rounded-full mt-2 mr-3 flex-shrink-0"></span>
+                          <span>{example}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                <Button
+                  onClick={() => createFlashcardFromLesson(currentLesson, currentStepIndex)}
+                  className="w-full h-12 text-base font-medium"
+                >
+                  <BookOpen className="h-5 w-5 mr-2" />
+                  Start Learning This Lesson
+                </Button>
+              </div>
             )}
           </div>
         </div>

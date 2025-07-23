@@ -76,12 +76,20 @@ export default function AppShell() {
     setCurrentState("flashcards")
   }
 
-  const handleNextStep = () => {
-    setCurrentStepIndex((prev) => prev + 1)
+  const handleNextStep = useCallback(async () => {
+    const nextStepIndex = currentStepIndex + 1
+    setCurrentStepIndex(nextStepIndex)
     setCurrentState("explanation")
-    setCurrentExplanation(null)
+    // Don't clear currentExplanation to preserve queryId and lesson context
+    // setCurrentExplanation(null)
     setCurrentFlashcards([])
-  }
+    
+    // Track lesson access for progress tracking
+    const existingLesson = lessonProgressList.find(lesson => lesson.topic === currentTopic)
+    if (existingLesson) {
+      await markLessonAccessed(existingLesson.queryId, nextStepIndex)
+    }
+  }, [currentStepIndex, currentTopic, lessonProgressList, markLessonAccessed])
 
   const handleStepNavigation = useCallback(async (stepIndex: number) => {
     setCurrentStepIndex(stepIndex)
