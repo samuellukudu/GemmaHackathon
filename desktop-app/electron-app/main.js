@@ -26,7 +26,7 @@ function createWindow() {
     mainWindow.loadURL('http://localhost:3000');
     mainWindow.webContents.openDevTools();
   } else {
-    mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+    mainWindow.loadFile(path.join(__dirname, 'dist', 'index.html'));
   }
 
   mainWindow.once('ready-to-show', () => {
@@ -81,4 +81,4 @@ ipcMain.handle('get-flashcards', async (event, lessonId) => {
 ipcMain.handle('get-quizzes', async (event, flashcardSetId) => {
   // This will be implemented to get quizzes
   return [];
-}); 
+});
