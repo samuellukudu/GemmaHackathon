@@ -1,5 +1,6 @@
 import { offlineDB } from './db';
 import APIClient from './api-client';
+import { EnhancedOfflineManager } from './offline-manager';
 
 interface PendingSyncItem {
   id: string;
@@ -7,25 +8,46 @@ interface PendingSyncItem {
   data: any;
 }
 
-export class DesktopOfflineManager {
-  private syncQueue: PendingSyncItem[] = [];
+export class DesktopOfflineManager extends EnhancedOfflineManager {
+  private desktopSyncQueue: PendingSyncItem[] = [];
 
   constructor() {
+    super();
+    this.desktopSyncQueue = [];
     this.setupSyncQueue();
   }
 
   private setupSyncQueue() {
-    // Initialize sync queue from storage
-    // TODO: Implement loading from IndexedDB
+    // Load pending items from storage
+    const stored = localStorage.getItem('pendingSyncQueue')
+    if (stored) {
+      this.desktopSyncQueue = JSON.parse(stored)
+    }
+  }
+
+  private saveSyncQueue() {
+    localStorage.setItem('pendingSyncQueue', JSON.stringify(this.desktopSyncQueue))
+  }
+
+  addToSyncQueue(type: 'explanation' | 'flashcard' | 'quiz', data: any) {
+    const item: PendingSyncItem = {
+      id: Date.now().toString(),
+      type,
+      data,
+      timestamp: new Date().toISOString(),
+      retryCount: 0
+    }
+    this.desktopSyncQueue.push(item)
+    this.saveSyncQueue()
   }
 
   public async syncPendingItems() {
-    for (const item of this.syncQueue) {
+    for (const item of this.desktopSyncQueue) {
       try {
         await this.syncItem(item);
         await this.markItemSynced(item.id);
       } catch (error) {
-        console.error('Sync failed for item:', item.id, error);
+
       }
     }
   }
@@ -60,34 +82,58 @@ export class DesktopOfflineManager {
 
   private async markItemSynced(id: string) {
     // TODO: Implement marking as synced in DB
-    this.syncQueue = this.syncQueue.filter(item => item.id !== id);
+    this.desktopSyncQueue = this.desktopSyncQueue.filter(item => item.id !== id);
+    this.saveSyncQueue();
+  }
+
+  private getMimeType(format: string): string {
+    switch (format) {
+      case 'json':
+        return 'application/json';
+      case 'csv':
+        return 'text/csv';
+      case 'pdf':
+        return 'application/pdf';
+      default:
+        return 'text/plain';
+    }
   }
 
   async exportUserData(format: 'json' | 'csv' | 'pdf') {
     const data = await this.gatherUserData();
     
     let content: string;
+    let filename: string;
     switch (format) {
       case 'json':
         content = JSON.stringify(data, null, 2);
+        filename = `user-data-${new Date().toISOString().split('T')[0]}.json`;
         break;
       case 'csv':
         content = this.convertToCSV(data);
+        filename = `user-data-${new Date().toISOString().split('T')[0]}.csv`;
         break;
       case 'pdf':
         content = this.convertToPDF(data);
+        filename = `user-data-${new Date().toISOString().split('T')[0]}.pdf`;
         break;
       default:
         throw new Error('Unsupported format');
     }
 
-    const filePath = await window.electronAPI.exportData(format);
-    await window.electronAPI.writeFile(filePath, content);
-    return filePath;
+    // Fallback for web version
+    const blob = new Blob([content], { type: this.getMimeType(format) });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+    return filename;
   }
 
-  async importUserData(filePath: string) {
-    const content = await window.electronAPI.readFile(filePath);
+  async importUserData(file: File) {
+    const content = await file.text();
     const data = JSON.parse(content);
     
     await this.validateImportData(data);

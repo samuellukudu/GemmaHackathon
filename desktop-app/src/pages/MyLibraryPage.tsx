@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Progress } from '../components/ui/progress'
 import { Badge } from '../components/ui/badge'
+import Navbar from '../components/Navbar'
 import {
   BookOpen,
   Trophy,
@@ -10,7 +11,6 @@ import {
   Clock,
   TrendingUp,
   Plus,
-  ArrowLeft,
   BarChart3,
   Calendar,
   Award,
@@ -34,40 +34,31 @@ export default function MyLibraryPage({
 }: MyLibraryPageProps) {
   const { stats: userStats, loading, formatStudyTime } = useLibraryStats()
 
+  const handleNavigate = (page: string) => {
+    switch (page) {
+      case "home":
+        onBack()
+        break
+      case "explore":
+        onShowExplore()
+        break
+      case "lessons":
+        onShowLessons()
+        break
+      default:
+        // Already on library
+        break
+    }
+  }
+
   return (
     <div className="min-h-screen bg-white">
       {/* Navigation Bar */}
-      <nav className="border-b border-gray-200 px-6 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          {/* Logo */}
-          <div className="flex items-center gap-2">
-            <BookOpen className="h-6 w-6 text-gray-900" />
-            <span className="text-xl font-semibold text-gray-900">AI Explainer Desktop</span>
-          </div>
-
-          {/* Navigation Links */}
-          <div className="hidden md:flex items-center gap-8">
-            <button className="text-gray-500 hover:text-gray-900" onClick={onBack}>
-              Home
-            </button>
-            <button className="text-gray-500 hover:text-gray-900" onClick={onShowExplore}>
-              Explore
-            </button>
-            <button className="text-gray-500 hover:text-gray-900" onClick={onShowLessons}>
-              My Lessons
-            </button>
-            <button className="text-gray-900 font-medium">My Library</button>
-          </div>
-
-          {/* Right Side */}
-          <div className="flex items-center gap-4">
-            <Button variant="outline" onClick={onBack} className="bg-transparent">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back
-            </Button>
-          </div>
-        </div>
-      </nav>
+      <Navbar 
+        currentPage="library" 
+        isOnline={true} 
+        onNavigate={handleNavigate}
+      />
 
       {/* Main Content */}
       <div className="max-w-6xl mx-auto px-6 py-16">
@@ -342,4 +333,4 @@ export default function MyLibraryPage({
       </div>
     </div>
   )
-} 
+}

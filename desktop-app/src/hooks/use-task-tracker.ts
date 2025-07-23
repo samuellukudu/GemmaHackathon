@@ -17,19 +17,19 @@ const DEFAULT_TASKS: Omit<ContentGenerationTask, 'id' | 'status' | 'progress' | 
   {
     type: ContentTaskType.RELATED_QUESTIONS,
     name: 'Find Related Questions', 
-    description: 'Discovering related questions to deepen understanding',
+    description: 'Discovering related questions to deepen understanding (runs concurrently)',
     estimatedDuration: 30
   },
   {
     type: ContentTaskType.FLASHCARDS,
     name: 'Create Flashcards',
-    description: 'Generating flashcards for active recall practice',
+    description: 'Generating flashcards from lesson content for active recall practice',
     estimatedDuration: 35
   },
   {
     type: ContentTaskType.QUIZ,
     name: 'Build Quiz Questions',
-    description: 'Creating quiz questions to test comprehension',
+    description: 'Creating quiz questions based on flashcards to test comprehension',
     estimatedDuration: 40
   }
 ]
@@ -202,4 +202,4 @@ export function useTaskTracker(): UseTaskTrackerReturn {
     getPendingTasks,
     getFailedTasks,
   }
-} 
+}

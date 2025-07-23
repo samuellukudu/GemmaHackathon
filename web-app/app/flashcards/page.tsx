@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { ArrowLeft, RotateCcw, ChevronLeft, ChevronRight, Volume2, Brain, BarChart3, AlertCircle } from "lucide-react"
+import { ArrowLeft, RotateCcw, ChevronLeft, ChevronRight, Brain, BarChart3, AlertCircle } from "lucide-react"
 import { Progress } from "@/components/ui/progress"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { useFlashcards } from "@/hooks/use-flashcards"
@@ -65,13 +65,7 @@ export default function FlashcardsPage({ explanation, onBack, onStartQuiz, onSho
     setIsFlipped(false)
   }
 
-  const speakText = (text: string) => {
-    if ("speechSynthesis" in window) {
-      const utterance = new SpeechSynthesisUtterance(text)
-      utterance.rate = 0.8
-      speechSynthesis.speak(utterance)
-    }
-  }
+
 
   if (flashcardsState.loading) {
     return (
@@ -202,17 +196,7 @@ export default function FlashcardsPage({ explanation, onBack, onStartQuiz, onSho
                     {currentFlashcard?.term}
                   </h2>
                   <p className="text-gray-500 text-sm">Click to reveal explanation</p>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      speakText(currentFlashcard?.term || "")
-                    }}
-                    className="mt-2 p-1"
-                  >
-                    <Volume2 className="h-3 w-3" />
-                  </Button>
+
                 </CardContent>
               </Card>
 
@@ -224,17 +208,7 @@ export default function FlashcardsPage({ explanation, onBack, onStartQuiz, onSho
                   </Badge>
                   <p className="text-base text-gray-800 leading-relaxed mb-3">{currentFlashcard?.explanation}</p>
                   <p className="text-emerald-600 font-medium text-sm">Great! You've studied this card</p>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      speakText(currentFlashcard?.explanation || "")
-                    }}
-                    className="mt-2 p-1"
-                  >
-                    <Volume2 className="h-3 w-3" />
-                  </Button>
+
                 </CardContent>
               </Card>
             </div>

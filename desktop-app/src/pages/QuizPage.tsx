@@ -56,7 +56,7 @@ export default function QuizPage({
     try {
       await fetchQuiz(queryId, lessonIndex)
     } catch (error) {
-      console.warn('Failed to load quiz:', error)
+
     }
   }
 
@@ -115,10 +115,7 @@ export default function QuizPage({
       // Mark lesson as completed when quiz is finished
       if (explanation?.queryId && explanation?.currentStepIndex !== undefined) {
         try {
-          console.log('🎯 Quiz completed! Marking lesson as completed:', { 
-            queryId: explanation.queryId, 
-            lessonIndex: explanation.currentStepIndex 
-          })
+
           await offlineManager.saveLessonProgress(explanation.queryId, explanation.currentStepIndex, true)
           
           // Also save quiz results for stats
@@ -126,7 +123,7 @@ export default function QuizPage({
           const percentage = Math.round((score / totalQuestions) * 100)
           await offlineManager.saveQuizResult(explanation.queryId, percentage, totalQuestions, explanation.currentStepIndex)
         } catch (error) {
-          console.error('Failed to save lesson completion:', error)
+
         }
       }
     }
@@ -453,4 +450,4 @@ export default function QuizPage({
       </div>
     </div>
   )
-} 
+}

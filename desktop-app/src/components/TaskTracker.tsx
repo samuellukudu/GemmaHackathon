@@ -34,6 +34,14 @@ const TASK_ICONS = {
   [ContentTaskType.QUIZ]: Target,
 }
 
+// Task dependencies - which tasks must complete before this one can start
+const TASK_DEPENDENCIES = {
+  [ContentTaskType.LESSONS]: [],
+  [ContentTaskType.RELATED_QUESTIONS]: [],
+  [ContentTaskType.FLASHCARDS]: [ContentTaskType.LESSONS],
+  [ContentTaskType.QUIZ]: [ContentTaskType.FLASHCARDS],
+}
+
 // Status to color mapping
 const STATUS_COLORS = {
   [TaskStatus.PENDING]: 'bg-gray-100 text-gray-600 border-gray-200',
@@ -64,11 +72,19 @@ function getElapsedTime(startTime?: Date): string {
   return formatDuration(elapsed)
 }
 
-function TaskItem({ task }: { task: ContentGenerationTask }) {
+function TaskItem({ task, allTasks }: { task: ContentGenerationTask; allTasks: ContentGenerationTask[] }) {
   const IconComponent = TASK_ICONS[task.type]
   const isInProgress = task.status === TaskStatus.IN_PROGRESS
   const isCompleted = task.status === TaskStatus.COMPLETED
   const isFailed = task.status === TaskStatus.FAILED
+  const isPending = task.status === TaskStatus.PENDING
+  
+  // Check if dependencies are met
+  const dependencies = TASK_DEPENDENCIES[task.type] || []
+  const dependenciesMet = dependencies.every(depType => 
+    allTasks.find(t => t.type === depType)?.status === TaskStatus.COMPLETED
+  )
+  const isBlocked = isPending && !dependenciesMet && dependencies.length > 0
 
   const StatusIcon = () => {
     switch (task.status) {
@@ -105,6 +121,16 @@ function TaskItem({ task }: { task: ContentGenerationTask }) {
           
           <p className="text-xs text-gray-600 mb-3">{task.description}</p>
           
+          {/* Dependency information */}
+          {isBlocked && dependencies.length > 0 && (
+            <div className="mb-2 p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-700">
+              <span className="font-medium">Waiting for:</span> {dependencies.map(depType => {
+                const depTask = allTasks.find(t => t.type === depType)
+                return depTask?.name || depType
+              }).join(', ')}
+            </div>
+          )}
+          
           {/* Progress bar for in-progress tasks */}
           {isInProgress && (
             <div className="mb-2">
@@ -124,6 +150,7 @@ function TaskItem({ task }: { task: ContentGenerationTask }) {
                 {isInProgress ? `${getElapsedTime(task.startTime)} elapsed` :
                  isCompleted ? `${getElapsedTime(task.startTime)} total` :
                  isFailed ? `Failed after ${getElapsedTime(task.startTime)}` :
+                 isBlocked ? 'Waiting for dependencies' :
                  `~${formatDuration(task.estimatedDuration)} estimated`}
               </span>
             </div>
@@ -195,7 +222,7 @@ export default function TaskTracker({
       
       <CardContent className="space-y-3">
         {tasks.map((task) => (
-          <TaskItem key={task.id} task={task} />
+          <TaskItem key={task.id} task={task} allTasks={tasks} />
         ))}
         
         {/* Summary stats */}
@@ -236,4 +263,4 @@ export default function TaskTracker({
       </CardContent>
     </Card>
   )
-} 
+}

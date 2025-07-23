@@ -34,14 +34,14 @@ export function useLessons(): UseLessonsReturn {
     try {
       const response: ContentResponse = await APIClient.getLessons(queryId)
       
-      console.log('Raw lessons response:', response)
+
       
       // Parse the lessons content
       const lessons: Lesson[] = Array.isArray(response.content) 
         ? response.content 
         : response.content?.lessons || []
 
-      console.log('Parsed lessons:', lessons)
+
 
       setState(prev => ({
         ...prev,
@@ -53,7 +53,7 @@ export function useLessons(): UseLessonsReturn {
     } catch (error) {
       let errorMessage = 'Failed to fetch lessons'
       
-      console.error('Error fetching lessons:', error)
+
       
       if (error instanceof APIClientError) {
         errorMessage = error.message
@@ -91,4 +91,4 @@ export function useLessons(): UseLessonsReturn {
     clearError,
     reset,
   }
-} 
+}

@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { ArrowLeft, Volume2, BookOpen, Brain, CheckCircle, BarChart3, AlertCircle } from "lucide-react"
+import { ArrowLeft, BookOpen, Brain, CheckCircle, BarChart3, AlertCircle } from "lucide-react"
 import { Progress } from "@/components/ui/progress"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { offlineManager } from "@/lib/offline-manager"
@@ -110,14 +110,7 @@ export default function ExplanationPage({
     }
   }, [apiState.queryId, lessonsState.lessons.length, lessonsState.loading, lessonsState.error, fetchLessons, apiState.loading, apiState.progress])
 
-  const speakText = (text: string) => {
-    if ("speechSynthesis" in window) {
-      const utterance = new SpeechSynthesisUtterance(text)
-      utterance.rate = 0.8
-      utterance.pitch = 1
-      speechSynthesis.speak(utterance)
-    }
-  }
+
 
   const createFlashcardFromLesson = (lesson: Lesson, index: number) => {
     // Create flashcards for this specific lesson and go to flashcards page
@@ -151,21 +144,65 @@ export default function ExplanationPage({
   }
 
   if (apiState.loading || lessonsState.loading || (!lessonsState.lessons.length && !apiState.error && !lessonsState.error)) {
+    // Determine current generation phase based on progress message
+    const getGenerationPhase = () => {
+      if (!apiState.progress) return { phase: 'Starting', progress: 10 }
+      
+      if (apiState.progress.includes('submitted') || apiState.progress.includes('Submitting')) {
+        return { phase: 'Generating lessons and related questions', progress: 25 }
+      } else if (apiState.progress.includes('Lessons ready')) {
+        return { phase: 'Lessons complete, generating flashcards', progress: 60 }
+      } else if (apiState.progress.includes('Related questions ready')) {
+        return { phase: 'Generating flashcards from lesson content', progress: 75 }
+      } else if (apiState.progress.includes('Flashcards ready')) {
+        return { phase: 'Creating quiz questions', progress: 90 }
+      } else {
+        return { phase: 'Preparing your learning experience', progress: 15 }
+      }
+    }
+    
+    const { phase, progress } = getGenerationPhase()
+    
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
         <div className="max-w-4xl mx-auto">
           <div className="text-center py-20">
             <Brain className="h-16 w-16 text-indigo-600 mx-auto mb-4 animate-pulse" />
             <h2 className="text-2xl font-semibold text-gray-900 mb-2">
-              {apiState.progress || lessonsState.loading ? 'Loading lessons...' : 'Generating Explanation...'}
+              Creating Your Learning Experience
             </h2>
-            <p className="text-gray-600">Creating a step-by-step breakdown of "{topic}"</p>
-            {apiState.progress && (
-              <div className="mt-4 max-w-md mx-auto">
-                <Progress value={33} className="h-2" />
-                <p className="text-sm text-gray-500 mt-2">{apiState.progress}</p>
+            <p className="text-gray-600 mb-6">Building a comprehensive breakdown of "{topic}"</p>
+            
+            {/* Sequential Progress Display */}
+            <div className="max-w-md mx-auto space-y-4">
+              <div className="bg-white rounded-lg p-4 shadow-sm">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-gray-700">{phase}</span>
+                  <span className="text-sm text-gray-500">{progress}%</span>
+                </div>
+                <Progress value={progress} className="h-2" />
               </div>
-            )}
+              
+              {/* Generation Steps */}
+              <div className="text-left space-y-2 text-sm">
+                <div className={`flex items-center gap-2 ${progress >= 25 ? 'text-green-600' : 'text-gray-400'}`}>
+                  <div className={`w-2 h-2 rounded-full ${progress >= 25 ? 'bg-green-500' : 'bg-gray-300'}`} />
+                  <span>Lessons & Related Questions {progress >= 60 ? '✓' : progress >= 25 ? '(in progress)' : ''}</span>
+                </div>
+                <div className={`flex items-center gap-2 ${progress >= 75 ? 'text-green-600' : progress >= 60 ? 'text-blue-600' : 'text-gray-400'}`}>
+                  <div className={`w-2 h-2 rounded-full ${progress >= 75 ? 'bg-green-500' : progress >= 60 ? 'bg-blue-500' : 'bg-gray-300'}`} />
+                  <span>Flashcards {progress >= 75 ? '✓' : progress >= 60 ? '(in progress)' : '(waiting for lessons)'}</span>
+                </div>
+                <div className={`flex items-center gap-2 ${progress >= 90 ? 'text-green-600' : progress >= 75 ? 'text-blue-600' : 'text-gray-400'}`}>
+                  <div className={`w-2 h-2 rounded-full ${progress >= 90 ? 'bg-green-500' : progress >= 75 ? 'bg-blue-500' : 'bg-gray-300'}`} />
+                  <span>Quiz Questions {progress >= 90 ? '✓' : progress >= 75 ? '(in progress)' : '(waiting for flashcards)'}</span>
+                </div>
+              </div>
+              
+              {apiState.progress && (
+                <p className="text-xs text-gray-500 mt-4 italic">{apiState.progress}</p>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -227,9 +264,7 @@ export default function ExplanationPage({
               Lesson {currentStepIndex + 1} of {lessonsState.lessons.length}: {currentLesson?.title}
             </p>
           </div>
-          <Button variant="outline" onClick={() => speakText(currentLesson?.overview || '')} className="h-10 w-10 p-0">
-            <Volume2 className="h-4 w-4" />
-          </Button>
+
           <Button
             variant="outline"
             onClick={onShowLibrary}
@@ -276,14 +311,7 @@ export default function ExplanationPage({
                   </Badge>
                   <CardTitle className="text-lg">{currentLesson.title}</CardTitle>
                   {completedSteps.has(currentStepIndex) && <CheckCircle className="h-5 w-5 text-green-500 ml-auto" />}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => speakText(`${currentLesson.title}. ${currentLesson.overview}`)}
-                    className="ml-auto p-1"
-                  >
-                    <Volume2 className="h-3 w-3" />
-                  </Button>
+
                 </div>
               </CardHeader>
               <CardContent className="flex-1 flex flex-col justify-between py-3">

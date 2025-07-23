@@ -50,7 +50,7 @@ export function useLibraryStats() {
         const localQuizResults = JSON.parse(localStorage.getItem("allQuizResults") || "[]")
         allQuizResults = localQuizResults
       } catch (error) {
-        console.error("Error loading quiz results:", error)
+
       }
       
       // Calculate quiz statistics
@@ -88,7 +88,7 @@ export function useLibraryStats() {
         recentQuizResults
       })
     } catch (error) {
-      console.error("Error calculating library stats:", error)
+
     } finally {
       setLoading(false)
     }
@@ -160,4 +160,4 @@ export function useLibraryStats() {
     refreshStats,
     formatStudyTime
   }
-} 
+}

@@ -17,11 +17,7 @@ const DEFAULT_TIMEOUT = 30000 // 30 seconds
 const MAX_RETRIES = 3
 const RETRY_DELAY = 1000 // 1 second
 
-// Debug: Log the API configuration
-console.log(`🔧 API Configuration:`)
-console.log(`   Base URL: ${API_BASE_URL}`)
-console.log(`   Environment: ${(import.meta as any).env?.MODE || 'unknown'}`)
-console.log(`   VITE_API_URL: ${(import.meta as any).env?.VITE_API_URL || 'not set'}`)
+
 
 // Custom error class for API errors
 export class APIClientError extends Error {
@@ -73,11 +69,7 @@ async function apiRequest<T>(
 ): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`
   
-  // Debug logging
-  console.log(`🚀 API Request: ${options.method || 'GET'} ${url}`)
-  if (options.body) {
-    console.log(`📝 Request body:`, JSON.parse(options.body as string))
-  }
+
   
   const defaultHeaders = {
     'Content-Type': 'application/json',
@@ -96,7 +88,7 @@ async function apiRequest<T>(
   try {
     const response = await fetch(url, config)
     
-    console.log(`📡 API Response: ${response.status} ${response.statusText}`)
+
     
     if (!response.ok) {
       let errorMessage = `HTTP ${response.status}: ${response.statusText}`
@@ -105,7 +97,7 @@ async function apiRequest<T>(
       try {
         errorDetails = await response.json()
         errorMessage = errorDetails.detail || errorMessage
-        console.log(`❌ API Error details:`, errorDetails)
+
       } catch {
         // If response is not JSON, use status text
       }
@@ -117,7 +109,7 @@ async function apiRequest<T>(
     const contentType = response.headers.get('content-type')
     if (contentType && contentType.includes('application/json')) {
       const result = await response.json()
-      console.log(`✅ API Success:`, result)
+
       return result
     } else {
       return {} as T
@@ -129,7 +121,7 @@ async function apiRequest<T>(
     
     // Handle network errors, timeouts, etc.
     if (error instanceof Error) {
-      console.log(`🔥 Network Error:`, error.message)
+
       if (error.name === 'AbortError') {
         throw new APIClientError('Request timeout', 408)
       }
@@ -252,7 +244,7 @@ export class APIClient {
         await new Promise(resolve => setTimeout(resolve, pollInterval))
         polls++
       } catch (error) {
-        console.warn(`Polling attempt ${polls + 1} failed:`, error)
+
         polls++
         
         if (polls >= maxPolls) {
@@ -313,14 +305,12 @@ export class APIClient {
 
         if (!results.relatedQuestions && relatedQuestionsAttempts < maxRelatedQuestionsAttempts) {
           try {
-            console.log(`🔍 Attempting to fetch related questions for queryId: ${queryId} (attempt ${relatedQuestionsAttempts + 1}/${maxRelatedQuestionsAttempts})`)
             results.relatedQuestions = await this.getRelatedQuestions(queryId)
-            console.log('✅ Related questions fetched successfully')
             if (onProgress) {
               onProgress('Related questions ready!')
             }
           } catch (error) {
-            console.log(`⚠️ Related questions not ready yet (attempt ${relatedQuestionsAttempts + 1}):`, error instanceof APIClientError ? `${error.statusCode} - ${error.message}` : error)
+
             // Expected to fail initially
           }
           relatedQuestionsAttempts++
@@ -331,7 +321,7 @@ export class APIClient {
           attempts++
         }
       } catch (error) {
-        console.warn(`Content polling attempt ${attempts + 1} failed:`, error)
+
         attempts++
         await new Promise(resolve => setTimeout(resolve, 2000))
       }
@@ -339,20 +329,18 @@ export class APIClient {
 
     // If lessons are ready but related questions aren't, try a few more times for related questions only
     if (results.lessons && !results.relatedQuestions && relatedQuestionsAttempts < maxRelatedQuestionsAttempts) {
-      console.log('📚 Lessons ready! Continuing to try for related questions...')
+
       const extraAttempts = Math.min(10, maxRelatedQuestionsAttempts - relatedQuestionsAttempts) // Up to 10 more attempts
       
       for (let i = 0; i < extraAttempts && !results.relatedQuestions; i++) {
         try {
-          console.log(`🔍 Extra attempt for related questions (${i + 1}/${extraAttempts})`)
           results.relatedQuestions = await this.getRelatedQuestions(results.queryId)
-          console.log('✅ Related questions finally ready!')
           if (onProgress) {
             onProgress('Related questions ready!')
           }
           break
         } catch (error) {
-          console.log(`⚠️ Related questions still not ready:`, error instanceof APIClientError ? `${error.statusCode} - ${error.message}` : error)
+
           if (i < extraAttempts - 1) {
             await new Promise(resolve => setTimeout(resolve, 2000))
           }
@@ -362,7 +350,7 @@ export class APIClient {
 
     // If related questions still aren't ready, log a warning but continue
     if (results.lessons && !results.relatedQuestions) {
-      console.warn('⚠️ Related questions timed out, but lessons are ready. Proceeding with partial results.')
+
       if (onProgress) {
         onProgress('Lessons ready! (Related questions may take longer)')
       }
@@ -373,4 +361,4 @@ export class APIClient {
 }
 
 // Export default instance
-export default APIClient 
+export default APIClient

@@ -20,10 +20,10 @@ export class DatabaseService {
     try {
       // In a real implementation, this would use a SQLite library
       // For now, we'll simulate the database connection
-      console.log('Connecting to database...');
+
       this.db = {}; // Placeholder for actual database connection
     } catch (error) {
-      console.error('Failed to connect to database:', error);
+
       throw error;
     }
   }
@@ -211,4 +211,4 @@ export class DatabaseService {
       this.db = null;
     }
   }
-} 
+}

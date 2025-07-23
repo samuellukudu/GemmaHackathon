@@ -3,17 +3,18 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Progress } from '../components/ui/progress'
 import { Badge } from '../components/ui/badge'
+import Navbar from '../components/Navbar'
 import {
   BookOpen,
   Trophy,
   Target,
-  ArrowLeft,
   CheckCircle,
   Clock,
-  BarChart3
+  BarChart3,
+  Trash2
 } from 'lucide-react'
 import { useLessonProgress } from '../hooks/use-lesson-progress'
-import { offlineManager } from '@/lib/offline-manager'
+import { offlineManager } from '../lib/offline-manager'
 
 interface MyLessonsPageProps {
   onBack: () => void
@@ -28,56 +29,68 @@ export default function MyLessonsPage({
   onShowExplore,
   onShowLibrary,
 }: MyLessonsPageProps) {
-  const { lessonProgressList, clearAllProgress } = useLessonProgress()
+  const { lessonProgressList, refreshProgress, clearAllProgress, deleteLesson } = useLessonProgress()
 
   const clearHistory = async () => {
     if (window.confirm('Are you sure you want to clear all lesson progress? This cannot be undone.')) {
-      await clearAllProgress()
-      await offlineManager.clearAllData() // Also clear old data
-      // Also clear any other stored data if needed
       try {
-        localStorage.removeItem('allQuizResults')
-        localStorage.removeItem('user_stats')
+        await clearAllProgress()
+        await offlineManager.clearAllData()
+        
+        // Clear localStorage items
+        const keysToRemove = []
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i)
+          if (key && (key.startsWith('lesson_progress_') || key.startsWith('topic_info_') || key === 'recentTopics')) {
+            keysToRemove.push(key)
+          }
+        }
+        keysToRemove.forEach(key => localStorage.removeItem(key))
+        
+        console.log('All lesson progress cleared')
       } catch (error) {
-        console.warn('Failed to clear some cached data:', error)
+        console.error('Failed to clear lesson progress:', error)
       }
+    }
+  }
+
+  const handleDeleteLesson = async (queryId: string, topic: string) => {
+    if (window.confirm(`Are you sure you want to delete the lesson "${topic}"? This action cannot be undone.`)) {
+      try {
+        await deleteLesson(queryId)
+        console.log('Lesson deleted successfully')
+      } catch (error) {
+        console.error('Failed to delete lesson:', error)
+        alert('Failed to delete lesson. Please try again.')
+      }
+    }
+  }
+
+  const handleNavigate = (page: string) => {
+    switch (page) {
+      case "home":
+        onBack()
+        break
+      case "explore":
+        onShowExplore()
+        break
+      case "library":
+        onShowLibrary()
+        break
+      default:
+        // Already on lessons
+        break
     }
   }
 
   return (
     <div className="min-h-screen bg-white">
       {/* Navigation Bar */}
-      <nav className="border-b border-gray-200 px-6 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          {/* Logo */}
-          <div className="flex items-center gap-2">
-            <BookOpen className="h-6 w-6 text-gray-900" />
-            <span className="text-xl font-semibold text-gray-900">AI Explainer Desktop</span>
-          </div>
-
-          {/* Navigation Links */}
-          <div className="hidden md:flex items-center gap-8">
-            <button className="text-gray-500 hover:text-gray-900" onClick={onBack}>
-              Home
-            </button>
-            <button className="text-gray-500 hover:text-gray-900" onClick={onShowExplore}>
-              Explore
-            </button>
-            <button className="text-gray-900 font-medium">My Lessons</button>
-            <button className="text-gray-500 hover:text-gray-900" onClick={onShowLibrary}>
-              My Library
-            </button>
-          </div>
-
-          {/* Right Side */}
-          <div className="flex items-center gap-4">
-            <Button variant="outline" onClick={onBack} className="bg-transparent">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back
-            </Button>
-          </div>
-        </div>
-      </nav>
+      <Navbar 
+        currentPage="lessons" 
+        isOnline={true} 
+        onNavigate={handleNavigate}
+      />
 
       {/* Main Content */}
       <div className="max-w-6xl mx-auto px-6 py-16">
@@ -106,12 +119,22 @@ export default function MyLessonsPage({
                   <CardContent className="p-6">
                     <div className="flex items-start justify-between mb-4">
                       <h3 className="font-medium text-gray-900 flex-1 pr-2">{lessonInfo.topic}</h3>
-                      {lessonInfo.progress === 100 && (
-                        <div className="flex items-center gap-1 text-green-600">
-                          <Trophy className="h-4 w-4" />
-                          <span className="text-xs font-medium">Complete</span>
-                        </div>
-                      )}
+                      <div className="flex items-center gap-2">
+                        {lessonInfo.progress === 100 && (
+                          <div className="flex items-center gap-1 text-green-600">
+                            <Trophy className="h-4 w-4" />
+                            <span className="text-xs font-medium">Complete</span>
+                          </div>
+                        )}
+                        <Button
+                          onClick={() => handleDeleteLesson(lessonInfo.queryId, lessonInfo.topic)}
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 w-8 p-0 text-gray-400 hover:text-red-500 hover:bg-red-50"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
                     
                     <div className="space-y-4">
@@ -235,4 +258,4 @@ export default function MyLessonsPage({
       </div>
     </div>
   )
-} 
+}

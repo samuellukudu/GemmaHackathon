@@ -58,6 +58,7 @@ interface UseLessonProgressReturn {
   markLessonAccessed: (queryId: string, lessonIndex: number) => Promise<void>
   clearAllProgress: () => Promise<void>
   cleanupDuplicates: () => Promise<void>
+  deleteLesson: (queryId: string) => Promise<void>
 }
 
 export function useLessonProgress(): UseLessonProgressReturn {
@@ -122,7 +123,7 @@ export function useLessonProgress(): UseLessonProgressReturn {
       
       setLessonProgressList(progressList)
     } catch (error) {
-      console.error('Error refreshing lesson progress:', error)
+
     }
   }, [])
 
@@ -145,7 +146,7 @@ export function useLessonProgress(): UseLessonProgressReturn {
         createdAt: topicInfo.createdAt
       }
     } catch (error) {
-      console.error('Error getting lesson progress:', error)
+
       return null
     }
   }, [])
@@ -180,7 +181,17 @@ export function useLessonProgress(): UseLessonProgressReturn {
       
       await refreshProgress()
     } catch (error) {
-      console.error('Error clearing lesson progress:', error)
+
+    }
+  }, [refreshProgress])
+
+  const deleteLesson = useCallback(async (queryId: string) => {
+    try {
+      await offlineManager.deleteTopicByQueryId(queryId)
+      await refreshProgress()
+    } catch (error) {
+      console.error('Failed to delete lesson:', error)
+      throw error // Re-throw to let the UI handle it
     }
   }, [refreshProgress])
 
@@ -235,7 +246,7 @@ export function useLessonProgress(): UseLessonProgressReturn {
       
       await refreshProgress()
     } catch (error) {
-      console.error('Error cleaning up duplicates:', error)
+
     }
   }, [refreshProgress])
 
@@ -255,6 +266,7 @@ export function useLessonProgress(): UseLessonProgressReturn {
     markLessonCompleted,
     markLessonAccessed,
     clearAllProgress,
-    cleanupDuplicates
+    cleanupDuplicates,
+    deleteLesson
   }
-} 
+}

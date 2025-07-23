@@ -42,12 +42,9 @@ export function useApiQuery(): UseApiQueryReturn {
 
     try {
       // First check if backend is reachable
-      console.log('🔍 Checking backend health...')
       try {
         await APIClient.healthCheck()
-        console.log('✅ Backend is reachable')
       } catch (healthError) {
-        console.error('❌ Backend health check failed:', healthError)
         setState(prev => ({
           ...prev,
           progress: 'Backend connection failed. Is the server running?',
@@ -68,11 +65,11 @@ export function useApiQuery(): UseApiQueryReturn {
       // Start task tracking immediately
       taskTracker.startTracking(`query-${Date.now()}`)
 
-      console.log('📤 Submitting query:', request)
+
 
       // Use the original working method but with task tracker updates
       const result = await APIClient.submitQueryAndWait(request, (progress) => {
-        console.log('📊 Progress update:', progress)
+
         setState(prev => ({
           ...prev,
           progress,
@@ -80,42 +77,70 @@ export function useApiQuery(): UseApiQueryReturn {
 
         // Update task tracker based on progress messages
         if (progress.includes('submitted')) {
-          console.log('✅ Query submitted, updating task progress')
+
           taskTracker.updateTaskProgress(ContentTaskType.LESSONS, 20)
           taskTracker.updateTaskProgress(ContentTaskType.RELATED_QUESTIONS, 10)
         } else if (progress.includes('Lessons ready')) {
-          console.log('✅ Lessons ready')
+
           taskTracker.markTaskCompleted(ContentTaskType.LESSONS)
           taskTracker.updateTaskProgress(ContentTaskType.RELATED_QUESTIONS, 50)
+          // Start flashcards generation now that lessons are ready
           taskTracker.updateTaskProgress(ContentTaskType.FLASHCARDS, 10)
-          taskTracker.updateTaskProgress(ContentTaskType.QUIZ, 10)
         } else if (progress.includes('Related questions ready')) {
-          console.log('✅ Related questions ready')
+
           taskTracker.markTaskCompleted(ContentTaskType.RELATED_QUESTIONS)
-          taskTracker.updateTaskProgress(ContentTaskType.FLASHCARDS, 50)
-          taskTracker.updateTaskProgress(ContentTaskType.QUIZ, 50)
+          // Continue with flashcards if lessons are also done
+          const lessonsTask = taskTracker.getTaskByType(ContentTaskType.LESSONS)
+          if (lessonsTask?.status === TaskStatus.COMPLETED) {
+            taskTracker.updateTaskProgress(ContentTaskType.FLASHCARDS, 30)
+          }
         } else if (progress.includes('may take longer')) {
-          console.log('⚠️ Related questions timed out')
+
           taskTracker.markTaskFailed(ContentTaskType.RELATED_QUESTIONS, 'Related questions are taking longer than expected')
-          taskTracker.updateTaskProgress(ContentTaskType.FLASHCARDS, 50)
-          taskTracker.updateTaskProgress(ContentTaskType.QUIZ, 50)
+          // Continue with flashcards if lessons are done
+          const lessonsTask = taskTracker.getTaskByType(ContentTaskType.LESSONS)
+          if (lessonsTask?.status === TaskStatus.COMPLETED) {
+            taskTracker.updateTaskProgress(ContentTaskType.FLASHCARDS, 30)
+          }
         }
       })
 
-      console.log('🎉 Query completed:', result)
+
 
       // Check if related questions failed to load
       if (result.lessons && !result.relatedQuestions) {
-        console.log('⚠️ Query completed but related questions missing - marking as failed')
+
         const relatedQuestionsTask = taskTracker.getTaskByType(ContentTaskType.RELATED_QUESTIONS)
         if (relatedQuestionsTask?.status !== TaskStatus.COMPLETED && relatedQuestionsTask?.status !== TaskStatus.FAILED) {
           taskTracker.markTaskFailed(ContentTaskType.RELATED_QUESTIONS, 'Related questions could not be generated')
         }
       }
 
-      // Mark remaining tasks as completed (they're generated on-demand)
-      taskTracker.markTaskCompleted(ContentTaskType.FLASHCARDS)
-      taskTracker.markTaskCompleted(ContentTaskType.QUIZ)
+      // Start flashcards generation since lessons are ready
+      if (result.lessons) {
+
+        taskTracker.updateTaskProgress(ContentTaskType.FLASHCARDS, 50)
+        
+        // Simulate flashcards generation progress
+        setTimeout(() => {
+          taskTracker.updateTaskProgress(ContentTaskType.FLASHCARDS, 80)
+          setTimeout(() => {
+            taskTracker.markTaskCompleted(ContentTaskType.FLASHCARDS)
+
+            
+            // Start quiz generation after flashcards
+
+            taskTracker.updateTaskProgress(ContentTaskType.QUIZ, 30)
+            setTimeout(() => {
+              taskTracker.updateTaskProgress(ContentTaskType.QUIZ, 70)
+              setTimeout(() => {
+                taskTracker.markTaskCompleted(ContentTaskType.QUIZ)
+
+              }, 1500)
+            }, 1000)
+          }, 2000)
+        }, 1000)
+      }
 
       setState(prev => ({
         ...prev,
@@ -127,7 +152,7 @@ export function useApiQuery(): UseApiQueryReturn {
       }))
 
     } catch (error) {
-      console.error('💥 Query submission failed:', error)
+
       
       let errorMessage = 'An unexpected error occurred'
       
@@ -247,4 +272,4 @@ export function useQueryContent(): UseQueryContentReturn {
     getFlashcards,
     getQuiz,
   }
-} 
+}

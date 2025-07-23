@@ -83,6 +83,13 @@ export default function AppShell() {
     setCurrentFlashcards([])
   }
 
+  const handleStepNavigation = (stepIndex: number) => {
+    setCurrentStepIndex(stepIndex)
+    setCurrentState("explanation")
+    setCurrentExplanation(null)
+    setCurrentFlashcards([])
+  }
+
   switch (currentState) {
     case "home":
       return (
@@ -133,6 +140,7 @@ export default function AppShell() {
           onBack={handleBackToHome}
           onGenerateFlashcards={handleGenerateFlashcards}
           onShowLibrary={handleShowLibrary}
+          onStepNavigation={handleStepNavigation}
         />
       )
 
@@ -161,4 +169,4 @@ export default function AppShell() {
     default:
       return <HomePage onStartExploration={handleStartExploration} />
   }
-} 
+}

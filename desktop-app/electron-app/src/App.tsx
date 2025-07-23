@@ -292,14 +292,29 @@ export function LessonsPage({
   const [recentTopics, setRecentTopics] = useState<string[]>([]);
 
   useEffect(() => {
-    // Load recent topics from local storage or database
+    // Load recent topics from localStorage lesson progress
     const loadRecentTopics = async () => {
-      // This would be implemented to load from the database
-      setRecentTopics([
-        "How do solar panels work?",
-        "How does the internet work?",
-        "How do electric cars work?"
-      ]);
+      try {
+        const topics: string[] = [];
+        // Get topics from localStorage lesson progress
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key?.startsWith('topic_info_')) {
+            const topicData = localStorage.getItem(key);
+            if (topicData) {
+              const parsed = JSON.parse(topicData);
+              if (parsed.topic && !topics.includes(parsed.topic)) {
+                topics.push(parsed.topic);
+              }
+            }
+          }
+        }
+        // Sort by most recent and take first 3
+        setRecentTopics(topics.slice(0, 3));
+      } catch (error) {
+
+        setRecentTopics([]);
+      }
     };
     loadRecentTopics();
   }, []);
@@ -609,4 +624,4 @@ export default function App() {
       {renderPage()}
     </div>
   );
-} 
+}

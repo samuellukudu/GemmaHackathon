@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Button } from "../components/ui/button"
 import { Badge } from "../components/ui/badge"
-import { ArrowLeft, Volume2, BookOpen, Brain, CheckCircle, BarChart3, AlertCircle } from "lucide-react"
+import { ArrowLeft, BookOpen, Brain, CheckCircle, BarChart3, AlertCircle } from "lucide-react"
 import { Progress } from "../components/ui/progress"
 import { Alert, AlertDescription } from "../components/ui/alert"
 import Navbar from "../components/Navbar"
@@ -19,6 +19,7 @@ interface ExplanationPageProps {
   onBack: () => void
   onGenerateFlashcards: (explanation: any) => void
   onShowLibrary: () => void
+  onStepNavigation: (stepIndex: number) => void
 }
 
 export default function ExplanationPage({
@@ -28,6 +29,7 @@ export default function ExplanationPage({
   onBack = () => {},
   onGenerateFlashcards = () => {},
   onShowLibrary = () => {},
+  onStepNavigation = () => {},
 }: Partial<ExplanationPageProps>) {
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set())
   const { state: apiState, taskTracker, submitQuery, clearError } = useApiQuery()
@@ -41,9 +43,9 @@ export default function ExplanationPage({
           .filter(([_, data]) => data.completed)
           .map(([index]) => parseInt(index))
         setCompletedSteps(new Set(completedStepIndices))
-        console.log('📚 Loaded completed steps:', completedStepIndices)
+
       } catch (error) {
-        console.warn('Failed to load completed steps:', error)
+
       }
     }
   }
@@ -55,7 +57,7 @@ export default function ExplanationPage({
         await fetchLessons(apiState.queryId)
         return
       } catch (error) {
-        console.warn('Failed to fetch lessons from API:', error)
+
       }
     }
 
@@ -65,7 +67,7 @@ export default function ExplanationPage({
         await submitQuery(topic, 'user-001') // Default user ID
         return
       } catch (error) {
-        console.warn('Failed to submit query to API:', error)
+
       }
     }
   }, [topic, apiState, lessonsState, submitQuery, fetchLessons])
@@ -83,17 +85,12 @@ export default function ExplanationPage({
   useEffect(() => {
     if (apiState.queryId && currentStepIndex !== undefined) {
       // Save lesson access progress (not completed, just accessed)
-      console.log('💾 Saving lesson progress:', { queryId: apiState.queryId, lessonIndex: currentStepIndex })
+
       offlineManager.saveLessonProgress(apiState.queryId, currentStepIndex, false)
       
       // Save topic info for later reference (only for user queries)
       if (lessonsState.lessons.length > 0 && isUserQuery) {
-        console.log('📝 Saving topic info:', { 
-          queryId: apiState.queryId, 
-          topic, 
-          totalLessons: lessonsState.lessons.length, 
-          isUserQuery 
-        })
+
         offlineManager.saveTopicInfo(apiState.queryId, topic, lessonsState.lessons.length, isUserQuery)
       }
     }
@@ -124,18 +121,12 @@ export default function ExplanationPage({
     }
   }
 
-  const speakText = (text: string) => {
-    if ("speechSynthesis" in window) {
-      const utterance = new SpeechSynthesisUtterance(text)
-      utterance.rate = 0.8
-      speechSynthesis.speak(utterance)
-    }
-  }
+
 
   const createFlashcardFromLesson = async (lesson: Lesson, stepIndex: number) => {
     // Mark this lesson as completed when user starts learning it
     if (apiState.queryId) {
-      console.log('✅ Marking lesson as completed:', { queryId: apiState.queryId, lessonIndex: stepIndex })
+
       await offlineManager.saveLessonProgress(apiState.queryId, stepIndex, true)
       setCompletedSteps(prev => new Set([...prev, stepIndex]))
     }
@@ -302,9 +293,7 @@ export default function ExplanationPage({
                 Lesson {currentStepIndex + 1} of {lessonsState.lessons.length}: {currentLesson?.title}
               </p>
             </div>
-            <Button variant="outline" onClick={() => speakText(currentLesson?.overview || '')} className="h-10 w-10 p-0">
-              <Volume2 className="h-4 w-4" />
-            </Button>
+
             <Button
               variant="outline"
               onClick={onShowLibrary}
@@ -351,14 +340,7 @@ export default function ExplanationPage({
                     </Badge>
                     <CardTitle className="text-lg">{currentLesson.title}</CardTitle>
                     {completedSteps.has(currentStepIndex) && <CheckCircle className="h-5 w-5 text-green-500 ml-auto" />}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => speakText(`${currentLesson.title}. ${currentLesson.overview}`)}
-                      className="ml-auto p-1"
-                    >
-                      <Volume2 className="h-3 w-3" />
-                    </Button>
+
                   </div>
                 </CardHeader>
                 <CardContent className="flex-1 flex flex-col justify-between py-3">
@@ -417,12 +399,13 @@ export default function ExplanationPage({
                   {lessonsState.lessons.map((lesson, index) => (
                     <div
                       key={index}
-                      className={`flex flex-col items-center gap-1 p-2 rounded-lg border text-center ${
+                      onClick={() => onStepNavigation(index)}
+                      className={`flex flex-col items-center gap-1 p-2 rounded-lg border text-center cursor-pointer hover:shadow-md transition-all duration-200 ${
                         index === currentStepIndex
-                          ? "border-indigo-500 bg-indigo-50"
+                          ? "border-indigo-500 bg-indigo-50 hover:bg-indigo-100"
                           : completedSteps.has(index)
-                            ? "border-green-500 bg-green-50"
-                            : "border-gray-200 bg-gray-50"
+                            ? "border-green-500 bg-green-50 hover:bg-green-100"
+                            : "border-gray-200 bg-gray-50 hover:bg-gray-100"
                       }`}
                     >
                       <Badge variant={index === currentStepIndex ? "default" : "secondary"} className="text-xs">
@@ -460,4 +443,4 @@ export default function ExplanationPage({
       </div>
     </div>
   )
-} 
+}

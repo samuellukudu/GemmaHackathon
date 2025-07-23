@@ -1,8 +1,9 @@
 import { offlineDB, type Topic, type QuizResult, type UserStats, type ExplanationData } from "./db"
 
-class OfflineManager {
+class EnhancedOfflineManager {
   private isOnline = true
   private initialized = false
+  private syncInProgress = false
 
   constructor() {
     if (typeof window !== "undefined") {
@@ -27,9 +28,9 @@ class OfflineManager {
     try {
       await offlineDB.init()
       this.initialized = true
-      console.log('OfflineManager initialized successfully')
+
     } catch (error) {
-      console.error('Failed to initialize OfflineManager:', error)
+
       // Continue without database - will fall back to localStorage only
     }
   }
@@ -41,13 +42,13 @@ class OfflineManager {
   }
 
   private handleOnline() {
-    console.log("App is online - syncing data...")
+
     // Here you could implement sync with a remote server
     this.showNotification("Back online! Data synced.", "success")
   }
 
   private handleOffline() {
-    console.log("App is offline - using local storage")
+
     this.showNotification("You're offline. Don't worry, your progress is saved locally!", "info")
   }
 
@@ -78,17 +79,26 @@ class OfflineManager {
     }
   }
 
-  async saveTopicProgress(topic: string, category = "general"): Promise<void> {
+  async saveTopicProgress(topic: string, category = "general", queryId?: string, totalLessons?: number): Promise<void> {
     await this.ensureInitialized()
     
     try {
+      // Check if topic already exists
+      let existingTopic: Topic | null = null
+      if (queryId) {
+        existingTopic = await offlineDB.getTopicByQueryId(queryId)
+      }
+      
       const topicData: Topic = {
-        id: this.generateId(),
+        id: existingTopic?.id || this.generateId(),
         title: topic,
         category,
-        completedSteps: [],
-        createdAt: new Date(),
+        queryId,
+        completedSteps: existingTopic?.completedSteps || [],
+        createdAt: existingTopic?.createdAt || new Date(),
         lastAccessed: new Date(),
+        totalLessons,
+        isUserQuery: this.isLikelyUserQuery(topic)
       }
 
       await offlineDB.saveTopic(topicData)
@@ -97,8 +107,17 @@ class OfflineManager {
       const recentTopics = await this.getRecentTopics()
       const updatedTopics = [topic, ...recentTopics.filter((t) => t !== topic)].slice(0, 10)
       localStorage.setItem("recentTopics", JSON.stringify(updatedTopics))
+      
+      // Store topic info in localStorage for quick access
+      if (queryId) {
+        localStorage.setItem(`topic_info_${queryId}`, JSON.stringify({
+          topic,
+          totalLessons: totalLessons || 0,
+          createdAt: topicData.createdAt.toISOString()
+        }))
+      }
     } catch (error) {
-      console.error("Error saving topic progress:", error)
+
       // Fallback to localStorage only
       const recentTopics = JSON.parse(localStorage.getItem("recentTopics") || "[]")
       const updatedTopics = [topic, ...recentTopics.filter((t: string) => t !== topic)].slice(0, 10)
@@ -111,7 +130,7 @@ class OfflineManager {
       const topics = await offlineDB.getTopics()
       return topics.map((t) => t.title)
     } catch (error) {
-      console.error("Error getting topics from DB:", error)
+
       // Fallback to localStorage
       return JSON.parse(localStorage.getItem("recentTopics") || "[]")
     }
@@ -131,7 +150,7 @@ class OfflineManager {
     try {
       await offlineDB.saveQuizResult(result)
     } catch (error) {
-      console.error("Error saving quiz result to DB:", error)
+
     }
 
     // Also save to localStorage for backward compatibility
@@ -178,7 +197,7 @@ class OfflineManager {
       // Also save to localStorage
       localStorage.setItem("userStats", JSON.stringify(stats))
     } catch (error) {
-      console.error("Error updating user stats:", error)
+
       // Fallback to localStorage calculation
       this.calculateStatsFromLocalStorage()
     }
@@ -219,7 +238,7 @@ class OfflineManager {
       const stats = await offlineDB.getUserStats()
       if (stats) return stats
     } catch (error) {
-      console.error("Error getting user stats from DB:", error)
+
     }
 
     // Fallback to localStorage
@@ -249,7 +268,7 @@ class OfflineManager {
       // Also save to localStorage
       localStorage.setItem(`completedSteps_${topic}`, JSON.stringify(newSteps))
     } catch (error) {
-      console.error("Error saving completed steps:", error)
+
       // Fallback to localStorage only
       const currentSteps = JSON.parse(localStorage.getItem(`completedSteps_${topic}`) || "[]")
       const newSteps = [...new Set([...currentSteps, stepIndex])]
@@ -281,7 +300,7 @@ class OfflineManager {
         lastAccessed: new Date()
       })
     } catch (error) {
-      console.error("Error saving lesson progress:", error)
+
     }
   }
 
@@ -290,7 +309,7 @@ class OfflineManager {
       const progressKey = `lesson_progress_${queryId}`
       return JSON.parse(localStorage.getItem(progressKey) || '{}')
     } catch (error) {
-      console.error("Error getting lesson progress:", error)
+
       return {}
     }
   }
@@ -313,7 +332,7 @@ class OfflineManager {
       
       return lastAccessedIndex
     } catch (error) {
-      console.error("Error getting last accessed lesson:", error)
+
       return 0
     }
   }
@@ -335,7 +354,7 @@ class OfflineManager {
       }
       localStorage.setItem(topicInfoKey, JSON.stringify(topicInfo))
     } catch (error) {
-      console.error("Error saving topic info:", error)
+
     }
   }
 
@@ -345,7 +364,7 @@ class OfflineManager {
       const info = localStorage.getItem(topicInfoKey)
       return info ? JSON.parse(info) : null
     } catch (error) {
-      console.error("Error getting topic info:", error)
+
       return null
     }
   }
@@ -372,7 +391,7 @@ class OfflineManager {
     try {
       await offlineDB.saveExplanation(explanationData)
     } catch (error) {
-      console.error("Error saving explanation to DB:", error)
+
     }
   }
 
@@ -380,7 +399,7 @@ class OfflineManager {
     try {
       return await offlineDB.getExplanation(topic)
     } catch (error) {
-      console.error("Error getting explanation from DB:", error)
+
       return null
     }
   }
@@ -402,7 +421,7 @@ class OfflineManager {
 
       this.showNotification("All data cleared successfully", "success")
     } catch (error) {
-      console.error("Error clearing data:", error)
+
       this.showNotification("Error clearing data", "warning")
     }
   }
@@ -423,9 +442,130 @@ class OfflineManager {
     return Date.now().toString(36) + Math.random().toString(36).substr(2)
   }
 
+  private isLikelyUserQuery(topic: string): boolean {
+    const questionStarters = [
+      'how do', 'how does', 'how is', 'how are', 'how can', 'how will',
+      'what is', 'what are', 'what does', 'what do',
+      'why do', 'why does', 'why is', 'why are',
+      'when do', 'when does', 'when is', 'when are',
+      'where do', 'where does', 'where is', 'where are'
+    ]
+    
+    const lowerTopic = topic.toLowerCase().trim()
+    const startsWithQuestion = questionStarters.some(starter => lowerTopic.startsWith(starter))
+    const endsWithQuestion = lowerTopic.endsWith('?')
+    
+    const isLikelyLessonStep = (
+      lowerTopic.startsWith('introduction to') ||
+      lowerTopic.startsWith('basic') ||
+      lowerTopic.startsWith('advanced') ||
+      lowerTopic.startsWith('understanding') ||
+      lowerTopic.includes('overview') ||
+      lowerTopic.includes('fundamentals') ||
+      (!startsWithQuestion && !endsWithQuestion && lowerTopic.length < 30)
+    )
+    
+    return startsWithQuestion && endsWithQuestion && !isLikelyLessonStep
+  }
+
+   async deleteTopicByQueryId(queryId: string): Promise<void> {
+     await this.ensureInitialized()
+     
+     try {
+       // Delete from IndexedDB
+       await offlineDB.deleteTopicByQueryId(queryId)
+       
+       // Delete from localStorage
+       localStorage.removeItem(`topic_info_${queryId}`)
+       localStorage.removeItem(`lesson_progress_${queryId}`)
+       
+       // Update recent topics list
+       const topicInfo = await this.getTopicInfo(queryId)
+       if (topicInfo) {
+         const recentTopics = await this.getRecentTopics()
+         const updatedTopics = recentTopics.filter(t => t !== topicInfo.topic)
+         localStorage.setItem("recentTopics", JSON.stringify(updatedTopics))
+       }
+     } catch (error) {
+       console.error('Failed to delete topic:', error)
+       // Fallback to localStorage only
+       localStorage.removeItem(`topic_info_${queryId}`)
+       localStorage.removeItem(`lesson_progress_${queryId}`)
+     }
+   }
+ 
+   async getUserQueryTopics(): Promise<Topic[]> {
+    await this.ensureInitialized()
+    
+    try {
+      return await offlineDB.getUserQueryTopics()
+    } catch (error) {
+      // Fallback to localStorage
+      const topics: Topic[] = []
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i)
+        if (key?.startsWith('topic_info_')) {
+          const queryId = key.replace('topic_info_', '')
+          const topicInfo = await this.getTopicInfo(queryId)
+          if (topicInfo && this.isLikelyUserQuery(topicInfo.topic)) {
+            topics.push({
+              id: queryId,
+              title: topicInfo.topic,
+              category: 'general',
+              queryId,
+              completedSteps: [],
+              createdAt: new Date(topicInfo.createdAt),
+              lastAccessed: new Date(topicInfo.createdAt),
+              totalLessons: topicInfo.totalLessons,
+              isUserQuery: true
+            })
+          }
+        }
+      }
+      return topics.sort((a, b) => b.lastAccessed.getTime() - a.lastAccessed.getTime())
+    }
+  }
+
+  async syncPendingData(): Promise<void> {
+    if (this.syncInProgress || !this.isOnline) return
+    
+    this.syncInProgress = true
+    try {
+      const syncQueue = await offlineDB.getSyncQueue()
+      
+      for (const item of syncQueue) {
+        try {
+          // Implement sync logic based on item type
+          await this.syncItem(item)
+          await offlineDB.removeSyncQueueItem(item.id)
+        } catch (error) {
+          // Increment retry count
+          item.retryCount++
+          if (item.retryCount < 3) {
+            await offlineDB.updateSyncQueueItem(item)
+          } else {
+            // Remove after 3 failed attempts
+            await offlineDB.removeSyncQueueItem(item.id)
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Sync failed:', error)
+    } finally {
+      this.syncInProgress = false
+    }
+  }
+
+  private async syncItem(item: any): Promise<void> {
+    // Implement actual sync logic here
+    // This would typically involve API calls to your backend
+    console.log('Syncing item:', item)
+  }
+
   getConnectionStatus(): boolean {
     return this.isOnline
   }
 }
 
-export const offlineManager = new OfflineManager()
+export const offlineManager = new EnhancedOfflineManager()
+export { EnhancedOfflineManager }
