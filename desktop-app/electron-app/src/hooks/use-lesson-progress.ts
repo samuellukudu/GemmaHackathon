@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
-import { offlineManager } from '@/lib/offline-manager'
+import { offlineManager } from '../lib/offline-manager'
 
 // Helper function to determine if a topic is likely a user query vs an individual lesson step
 function isLikelyUserQuery(topic: string): boolean {

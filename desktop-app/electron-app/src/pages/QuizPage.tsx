@@ -8,7 +8,7 @@ import { Alert, AlertDescription } from "../components/ui/alert"
 import Navbar from "../components/Navbar"
 import { useQuiz } from "../hooks/use-quiz"
 import { TrueFalseQuestion, MultipleChoiceQuestion } from "../types/api"
-import { offlineManager } from "@/lib/offline-manager"
+import { offlineManager } from "../lib/offline-manager"
 
 interface QuizPageProps {
   flashcards?: any[] // Legacy prop, not used with API

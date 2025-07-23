@@ -212,3 +212,6 @@ export class DatabaseService {
     }
   }
 }
+
+// Export a singleton instance
+export const databaseService = DatabaseService.getInstance();

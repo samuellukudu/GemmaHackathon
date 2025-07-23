@@ -62,11 +62,10 @@ export default function FlashcardsPage({ explanation = {}, onBack = () => {}, on
   }
 
   const handleNext = () => {
-    if (currentCard === flashcardsState.flashcards.length - 1) {
-      if (studiedCards.has(currentCard)) {
-        onStartQuiz(flashcardsState.flashcards)
-        return
-      }
+    const allCardsStudied = studiedCards.size === flashcardsState.flashcards.length && flashcardsState.flashcards.length > 0
+    if (allCardsStudied) {
+      onStartQuiz(flashcardsState.flashcards)
+      return
     }
     setCurrentCard((prev) => (prev + 1) % flashcardsState.flashcards.length)
     setIsFlipped(false)
@@ -225,7 +224,7 @@ export default function FlashcardsPage({ explanation = {}, onBack = () => {}, on
 
           {/* Flashcard - Main Content */}
           <div className="flex-1 flex justify-center items-center mb-4">
-            <div className="relative w-full max-w-2xl h-64 cursor-pointer" onClick={handleFlip}>
+            <div className="relative w-full max-w-2xl h-64 cursor-pointer perspective-1000" onClick={handleFlip}>
               <div
                 className={`absolute inset-0 transition-transform duration-700 transform-style-preserve-3d ${isFlipped ? "rotate-y-180" : ""}`}
               >
@@ -279,7 +278,7 @@ export default function FlashcardsPage({ explanation = {}, onBack = () => {}, on
               className="h-10 px-4 bg-transparent text-sm"
               disabled={flashcardsState.flashcards.length <= 1}
             >
-              {currentCard === flashcardsState.flashcards.length - 1 && studiedCards.has(currentCard) ? (
+              {allCardsStudied ? (
                 <>
                   <Brain className="h-4 w-4 mr-1" />
                   Quiz

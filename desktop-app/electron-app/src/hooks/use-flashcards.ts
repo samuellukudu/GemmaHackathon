@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react'
 import APIClient, { APIClientError } from '../lib/api-client'
 import { ContentResponse, Flashcard } from '../types/api'
+import { databaseService } from '../lib/database'
 
 interface FlashcardsState {
   loading: boolean
@@ -64,23 +65,47 @@ export function useFlashcards(): UseFlashcardsReturn {
       }))
 
     } catch (error) {
-      let errorMessage = 'Failed to fetch flashcards'
+      console.error('API Error fetching flashcards, falling back to mock data:', error)
       
-      if (error instanceof APIClientError) {
-        if (error.statusCode === 404) {
-          errorMessage = 'Flashcards not found. They may still be generating.'
-        } else {
+      try {
+        // Fallback to mock data from database service
+        const mockFlashcards = await databaseService.getFlashcards(lessonIndex)
+        
+        // Transform database flashcards to API flashcard format
+        const flashcards: Flashcard[] = mockFlashcards.map(item => ({
+          term: item.term,
+          explanation: item.explanation,
+          difficulty: 'medium' as const
+        }))
+        
+        setState(prev => ({
+          ...prev,
+          loading: false,
+          flashcards,
+          createdAt: new Date().toISOString(),
+          processingTime: 0,
+        }))
+      } catch (fallbackError) {
+        console.error('Error fetching fallback flashcards:', fallbackError)
+        
+        let errorMessage = 'Failed to fetch flashcards'
+        
+        if (error instanceof APIClientError) {
+          if (error.statusCode === 404) {
+            errorMessage = 'Flashcards not found. They may still be generating.'
+          } else {
+            errorMessage = error.message
+          }
+        } else if (error instanceof Error) {
           errorMessage = error.message
         }
-      } else if (error instanceof Error) {
-        errorMessage = error.message
-      }
 
-      setState(prev => ({
-        ...prev,
-        loading: false,
-        error: errorMessage,
-      }))
+        setState(prev => ({
+          ...prev,
+          loading: false,
+          error: errorMessage,
+        }))
+      }
     }
   }, [])
 
@@ -149,15 +174,33 @@ export function useAllFlashcards() {
 
       setAllFlashcards(flashcards)
     } catch (error) {
-      let errorMessage = 'Failed to fetch all flashcards'
+      console.error('API Error fetching all flashcards, falling back to mock data:', error)
       
-      if (error instanceof APIClientError) {
-        errorMessage = error.message
-      } else if (error instanceof Error) {
-        errorMessage = error.message
-      }
+      try {
+        // Fallback to mock data from database service
+        const mockFlashcards = await databaseService.getFlashcards(0) // Use lesson 0 as default
+        
+        // Transform database flashcards to API flashcard format
+        const flashcards: Flashcard[] = mockFlashcards.map(item => ({
+          term: item.term,
+          explanation: item.explanation,
+          difficulty: 'medium' as const
+        }))
+        
+        setAllFlashcards(flashcards)
+      } catch (fallbackError) {
+        console.error('Error fetching fallback flashcards:', fallbackError)
+        
+        let errorMessage = 'Failed to fetch all flashcards'
+        
+        if (error instanceof APIClientError) {
+          errorMessage = error.message
+        } else if (error instanceof Error) {
+          errorMessage = error.message
+        }
 
-      setError(errorMessage)
+        setError(errorMessage)
+      }
     } finally {
       setLoading(false)
     }
@@ -169,4 +212,4 @@ export function useAllFlashcards() {
     allFlashcards,
     fetchAllFlashcards,
   }
-} 
+}

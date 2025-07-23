@@ -10,7 +10,7 @@ import { useApiQuery } from "../hooks/use-api-query"
 import { useLessons } from "../hooks/use-lessons"
 import { Lesson } from "../types/api"
 import TaskTracker from "../components/TaskTracker"
-import { offlineManager } from "@/lib/offline-manager"
+import { offlineManager } from "../lib/offline-manager"
 
 interface ExplanationPageProps {
   topic: string

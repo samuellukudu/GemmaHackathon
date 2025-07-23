@@ -4,7 +4,7 @@ import { Input } from "../components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Plus, ChevronDown, ChevronUp, WifiOff } from "lucide-react"
 import Navbar from "../components/Navbar"
-import { offlineManager } from "@/lib/offline-manager"
+import { offlineManager } from "../lib/offline-manager"
 
 
 const categories = [
