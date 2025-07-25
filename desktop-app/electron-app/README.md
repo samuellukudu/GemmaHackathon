@@ -56,9 +56,19 @@ This will:
 - Launch the Electron app in development mode
 - Enable hot reloading for both React and Electron
 
-## Building
+## Building for Distribution
 
-To build the app for distribution:
+The app supports building for multiple platforms. All build artifacts are created in the `dist/` directory and are automatically ignored by Git.
+
+### Prerequisites for Building
+
+- Node.js 18+
+- npm or yarn
+- Platform-specific requirements (see below)
+
+### Development Build
+
+To build the app for development/testing:
 
 ```bash
 npm run build
@@ -66,8 +76,100 @@ npm run build
 
 This will:
 - Build the React app with Vite
-- Package the app with Electron Builder
+- Package the app with Electron Builder for your current platform
 - Create distributable files in the `dist` directory
+
+### Platform-Specific Builds
+
+#### macOS Builds
+
+**For Apple Silicon Macs (M1/M2/M3 - ARM64):**
+```bash
+npm run dist:mac
+```
+
+**For Intel Macs (x64):**
+```bash
+npm run dist:mac -- --x64
+```
+
+**Build Outputs:**
+- `AI Explainer Desktop-1.0.0-arm64.dmg` - ARM64 DMG installer
+- `AI Explainer Desktop-1.0.0-arm64-mac.zip` - ARM64 ZIP archive
+- `AI Explainer Desktop-1.0.0.dmg` - Intel x64 DMG installer (when using --x64)
+- `AI Explainer Desktop-1.0.0-mac.zip` - Intel x64 ZIP archive (when using --x64)
+- `mac-arm64/AI Explainer Desktop.app` - ARM64 app bundle
+- `mac/AI Explainer Desktop.app` - Intel x64 app bundle (when using --x64)
+
+#### Windows Builds
+
+**For Windows x64:**
+```bash
+npm run dist:win -- --x64
+```
+
+**Build Outputs:**
+- `AI Explainer Desktop Setup 1.0.0.exe` - NSIS installer (~704MB)
+- `win-unpacked/AI Explainer Desktop.exe` - Portable executable
+- `*.blockmap` files - For auto-updater support
+
+**Note:** Windows builds can be created from macOS, but code signing requires Windows-specific certificates.
+
+#### Linux Builds
+
+**For Linux x64:**
+```bash
+npm run dist:linux
+```
+
+**Build Outputs:**
+- `AI Explainer Desktop-1.0.0.AppImage` - Portable Linux application
+
+### Build All Platforms
+
+To build for all supported platforms:
+
+```bash
+# Build macOS ARM64
+npm run dist:mac
+
+# Build macOS Intel
+npm run dist:mac -- --x64
+
+# Build Windows
+npm run dist:win -- --x64
+
+# Build Linux
+npm run dist:linux
+```
+
+### Build Configuration
+
+Build settings are configured in `package.json` under the `"build"` section:
+
+- **App ID**: `com.yourapp.ai-explainer-desktop`
+- **Product Name**: `AI Explainer Desktop`
+- **macOS**: DMG and ZIP formats, unsigned for development
+- **Windows**: NSIS installer format
+- **Linux**: AppImage format
+
+### Distribution Notes
+
+1. **File Sizes**: 
+   - macOS ARM64 builds: ~200MB
+   - macOS Intel builds: ~800MB
+   - Windows builds: ~700MB
+
+2. **Code Signing**: Currently disabled for development. For production:
+   - macOS: Configure Apple Developer certificates
+   - Windows: Configure code signing certificates
+
+3. **Auto-Updates**: Block map files are generated for future auto-update support
+
+4. **Architecture Support**:
+   - macOS: ARM64 (Apple Silicon) and x64 (Intel)
+   - Windows: x64 only
+   - Linux: x64 only
 
 ## Project Structure
 
@@ -116,10 +218,27 @@ New UI components can be added in `src/components/ui/` following the existing pa
 
 ## Scripts
 
-- `npm run dev` - Start development server
-- `npm run build` - Build for production
+### Development
+- `npm run dev` - Start development server with hot reloading
+- `npm run dev:renderer` - Start only the Vite development server
+- `npm run dev:electron` - Start only the Electron app (requires renderer running)
+
+### Building
+- `npm run build` - Build for current platform
+- `npm run build:renderer` - Build only the React app
+- `npm run build:electron` - Build only the Electron app
 - `npm run start` - Start Electron app (requires built files)
-- `npm run dist` - Create distributable packages
+
+### Distribution
+- `npm run dist` - Create distributable packages for current platform
+- `npm run dist:dir` - Create unpacked directory (for testing)
+- `npm run dist:mac` - Build for macOS (ARM64 by default)
+- `npm run dist:mac -- --x64` - Build for macOS Intel
+- `npm run dist:win -- --x64` - Build for Windows x64
+- `npm run dist:linux` - Build for Linux x64
+
+### Utilities
+- `npm run postinstall` - Install app dependencies (runs automatically)
 
 ## Troubleshooting
 
@@ -137,4 +256,4 @@ New UI components can be added in `src/components/ui/` following the existing pa
 
 ## License
 
-MIT License - see LICENSE file for details 
+MIT License - see LICENSE file for details
