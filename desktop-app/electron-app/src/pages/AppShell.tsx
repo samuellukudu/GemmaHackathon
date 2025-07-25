@@ -58,6 +58,16 @@ export default function AppShell() {
     setCurrentState("lessons")
   }
 
+  const handleShowExplanation = () => {
+    // Only navigate to explanation if we have a current topic
+    if (currentTopic) {
+      setCurrentState("explanation")
+    } else {
+      // If no topic is set, redirect to home to select a topic first
+      setCurrentState("home")
+    }
+  }
+
   const handleGenerateFlashcards = (explanation: any) => {
     setCurrentExplanation(explanation)
     setCurrentState("flashcards")
@@ -112,6 +122,7 @@ export default function AppShell() {
           onShowLibrary={handleShowLibrary}
           onShowExplore={handleShowExplore}
           onShowLessons={handleShowLessons}
+          onShowExplanation={handleShowExplanation}
         />
       )
 
@@ -122,6 +133,7 @@ export default function AppShell() {
           onStartExploration={handleStartExploration}
           onShowLibrary={handleShowLibrary}
           onShowLessons={handleShowLessons}
+          onShowExplanation={handleShowExplanation}
         />
       )
 
@@ -132,6 +144,7 @@ export default function AppShell() {
           onStartExploration={handleStartExploration}
           onShowExplore={handleShowExplore}
           onShowLessons={handleShowLessons}
+          onShowExplanation={handleShowExplanation}
         />
       )
 
@@ -142,6 +155,7 @@ export default function AppShell() {
           onStartExploration={handleStartExploration}
           onShowExplore={handleShowExplore}
           onShowLibrary={handleShowLibrary}
+          onShowExplanation={handleShowExplanation}
         />
       )
 

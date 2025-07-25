@@ -280,7 +280,7 @@ export default function ExplanationPage({
     <div className="min-h-screen bg-white">
       {/* Navigation Bar */}
       <Navbar 
-        currentPage="lessons" 
+        currentPage="explanation" 
         isOnline={true} 
         onNavigate={handleNavigate}
       />

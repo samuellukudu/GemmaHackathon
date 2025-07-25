@@ -18,6 +18,7 @@ interface ExplorePageProps {
   onStartExploration: (topic: string) => void
   onShowLibrary: () => void
   onShowLessons: () => void
+  onShowExplanation: () => void
 }
 
 export default function ExplorePage({
@@ -25,6 +26,7 @@ export default function ExplorePage({
   onStartExploration,
   onShowLibrary,
   onShowLessons,
+  onShowExplanation,
 }: ExplorePageProps) {
   const [selectedQueryId, setSelectedQueryId] = useState<string | null>(null)
   const { state: relatedQuestionsState, fetchRelatedQuestions, clearError } = useRelatedQuestions()
@@ -85,6 +87,9 @@ export default function ExplorePage({
         break
       case "lessons":
         onShowLessons()
+        break
+      case "explanation":
+        onShowExplanation()
         break
       default:
         // Already on explore

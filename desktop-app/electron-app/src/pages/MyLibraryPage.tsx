@@ -24,6 +24,7 @@ interface MyLibraryPageProps {
   onStartExploration: (topic: string) => void
   onShowExplore: () => void
   onShowLessons: () => void
+  onShowExplanation: () => void
 }
 
 export default function MyLibraryPage({
@@ -31,6 +32,7 @@ export default function MyLibraryPage({
   onStartExploration,
   onShowExplore,
   onShowLessons,
+  onShowExplanation,
 }: MyLibraryPageProps) {
   const { stats: userStats, loading, formatStudyTime } = useLibraryStats()
 
@@ -44,6 +46,9 @@ export default function MyLibraryPage({
         break
       case "lessons":
         onShowLessons()
+        break
+      case "explanation":
+        onShowExplanation()
         break
       default:
         // Already on library

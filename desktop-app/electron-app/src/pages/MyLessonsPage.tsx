@@ -21,6 +21,7 @@ interface MyLessonsPageProps {
   onStartExploration: (topic: string) => void
   onShowExplore: () => void
   onShowLibrary: () => void
+  onShowExplanation: () => void
 }
 
 export default function MyLessonsPage({
@@ -28,6 +29,7 @@ export default function MyLessonsPage({
   onStartExploration,
   onShowExplore,
   onShowLibrary,
+  onShowExplanation,
 }: MyLessonsPageProps) {
   const { lessonProgressList, refreshProgress, clearAllProgress, deleteLesson } = useLessonProgress()
 
@@ -76,6 +78,9 @@ export default function MyLessonsPage({
         break
       case "library":
         onShowLibrary()
+        break
+      case "explanation":
+        onShowExplanation()
         break
       default:
         // Already on lessons

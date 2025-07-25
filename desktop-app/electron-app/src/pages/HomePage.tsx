@@ -62,6 +62,7 @@ interface HomePageProps {
   onShowLibrary?: () => void
   onShowExplore?: () => void
   onShowLessons?: () => void
+  onShowExplanation?: () => void
 }
 
 export default function HomePage({
@@ -69,6 +70,7 @@ export default function HomePage({
   onShowLibrary = () => {},
   onShowExplore = () => {},
   onShowLessons = () => {},
+  onShowExplanation = () => {},
 }: HomePageProps) {
   const [selectedCategory, setSelectedCategory] = useState<string>("")
   const [selectedSubcategory, setSelectedSubcategory] = useState<string>("")
@@ -147,6 +149,9 @@ export default function HomePage({
         break
       case "lessons":
         onShowLessons()
+        break
+      case "explanation":
+        onShowExplanation()
         break
       default:
         // Already on home
